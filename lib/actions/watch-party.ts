@@ -1,0 +1,408 @@
+"use server"
+
+import crypto from "node:crypto"
+
+import { requireAuthUser } from "@/lib/auth/clerk"
+import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass"
+import { connectDB } from "@/lib/db/mongodb"
+import VisionWatchParty, {
+  type IVisionWatchPartyParticipant,
+} from "@/models/VisionWatchParty"
+import VisionTitle from "@/models/VisionTitle"
+import VisionAsset from "@/models/VisionAsset"
+import { watchPartyChannelName } from "@/lib/realtime/ably"
+import {
+  getDevWatchParty,
+  hasDevWatchParty,
+  putDevWatchParty,
+  type DevWatchPartyStoredState,
+} from "@/lib/watch-party/dev-in-memory"
+import { normalizeInviteCode } from "@/lib/watch-party/invite-code"
+
+import type { WatchPartySnapshot } from "@/lib/watch-party/snapshot"
+
+const isObjectId = (value: string) => /^[a-f0-9]{24}$/i.test(value)
+
+function buildDevSnapshot(state: DevWatchPartyStoredState): WatchPartySnapshot {
+  return {
+    inviteCode: state.inviteCode,
+    inviteUrl: buildInviteUrl(state.inviteCode, state.inviteToken),
+    channel: state.channel,
+    hostId: state.hostId,
+    titleId: state.titleId,
+    assetId: state.assetId,
+    status: state.status,
+    participants: state.participants,
+    playback: state.playback,
+    expiresAt: state.expiresAt,
+  }
+}
+
+export async function createWatchParty(input: {
+  titleId: string
+  assetId: string
+}): Promise<{ success: boolean; data?: WatchPartySnapshot; error?: string }> {
+  try {
+    const user = await requireAuthUser()
+
+    // Mock IDs ("demo-title-01") cannot be loaded from Mongo. When the dev
+    // auth bypass is on we still want an end-to-end flow for testing, so we
+    // synthesize an in-memory party.
+    const usingMocks = !isObjectId(input.titleId) || !isObjectId(input.assetId)
+
+    if (usingMocks && isDevAuthBypassEnabled()) {
+      const inviteCode = generateInviteCode()
+      const inviteToken = crypto.randomBytes(24).toString("hex")
+      const channel = watchPartyChannelName(inviteCode)
+
+      try {
+        await connectDB()
+        const session = await VisionWatchParty.create({
+          inviteCode,
+          inviteToken,
+          hostId: user.userId,
+          titleId: input.titleId,
+          assetId: input.assetId,
+          status: "lobby",
+          participants: [
+            {
+              authUserId: user.userId,
+              displayName:
+                `${user.firstName} ${user.lastName}`.trim() || user.email || "Host",
+              avatarUrl: user.imageUrl,
+              isHost: true,
+              joinedAt: new Date(),
+            },
+          ],
+          channel,
+        })
+        return { success: true, data: serialize(session, inviteToken) }
+      } catch (err) {
+        console.warn("[vision/watch-party] Mongo unavailable for mock party; using in-memory", err)
+        const state: DevWatchPartyStoredState = {
+          inviteCode,
+          inviteToken,
+          hostId: user.userId,
+          titleId: input.titleId,
+          assetId: input.assetId,
+          channel,
+          status: "lobby",
+          participants: [
+            {
+              authUserId: user.userId,
+              displayName:
+                `${user.firstName} ${user.lastName}`.trim() || user.email || "Host",
+              avatarUrl: user.imageUrl,
+              isHost: true,
+              joinedAt: new Date().toISOString(),
+            },
+          ],
+          playback: {
+            isPlaying: false,
+            positionSeconds: 0,
+            updatedAt: new Date().toISOString(),
+            version: 0,
+          },
+          expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 6).toISOString(),
+          updatedAt: new Date().toISOString(),
+        }
+        putDevWatchParty(state)
+        return { success: true, data: buildDevSnapshot(state) }
+      }
+    }
+
+    await connectDB()
+
+    const [title, asset] = await Promise.all([
+      VisionTitle.findById(input.titleId),
+      VisionAsset.findById(input.assetId),
+    ])
+    if (!title || !asset) return { success: false, error: "Missing title or asset" }
+    if (asset.status !== "ready") return { success: false, error: "Asset not ready" }
+
+    const inviteCode = generateInviteCode()
+    const inviteToken = crypto.randomBytes(24).toString("hex")
+    const channel = watchPartyChannelName(inviteCode)
+
+    const session = await VisionWatchParty.create({
+      inviteCode,
+      inviteToken,
+      hostId: user.userId,
+      titleId: input.titleId,
+      assetId: input.assetId,
+      status: "lobby",
+      participants: [
+        {
+          authUserId: user.userId,
+          displayName: `${user.firstName} ${user.lastName}`.trim() || user.email,
+          avatarUrl: user.imageUrl,
+          isHost: true,
+          joinedAt: new Date(),
+        },
+      ],
+      channel,
+    })
+
+    return { success: true, data: serialize(session, inviteToken) }
+  } catch (error) {
+    return errorResult(error)
+  }
+}
+
+export async function joinWatchParty(
+  inviteCode: string,
+  token: string,
+): Promise<{ success: boolean; data?: WatchPartySnapshot; error?: string }> {
+  try {
+    const user = await requireAuthUser()
+    const code = normalizeInviteCode(inviteCode)
+
+    try {
+      await connectDB()
+      const session = await VisionWatchParty.findOne({ inviteCode: code })
+      if (session) {
+        if (session.status === "ended") {
+          return { success: false, error: "This watch party has ended." }
+        }
+        if (session.expiresAt.getTime() < Date.now()) {
+          return { success: false, error: "Invite has expired" }
+        }
+        if (session.inviteToken !== token) {
+          return { success: false, error: "Invalid invite" }
+        }
+        const alreadyJoined = session.participants.some((p) => p.authUserId === user.userId)
+        if (!alreadyJoined) {
+          session.participants.push({
+            authUserId: user.userId,
+            displayName: `${user.firstName} ${user.lastName}`.trim() || user.email,
+            avatarUrl: user.imageUrl,
+            isHost: false,
+            joinedAt: new Date(),
+          })
+          await session.save()
+        }
+        return { success: true, data: serialize(session, token) }
+      }
+    } catch {
+      // Mongo unavailable — try in-memory below
+    }
+
+    if (isDevAuthBypassEnabled()) {
+      const dev = getDevWatchParty(code)
+      if (dev) {
+        if (dev.status === "ended") {
+          return { success: false, error: "This watch party has ended." }
+        }
+        if (new Date(dev.expiresAt).getTime() < Date.now()) {
+          return { success: false, error: "Invite has expired" }
+        }
+        if (dev.inviteToken !== token) {
+          return { success: false, error: "Invalid invite" }
+        }
+        const alreadyJoined = dev.participants.some((p) => p.authUserId === user.userId)
+        if (!alreadyJoined) {
+          dev.participants.push({
+            authUserId: user.userId,
+            displayName: `${user.firstName} ${user.lastName}`.trim() || user.email,
+            avatarUrl: user.imageUrl,
+            isHost: false,
+            joinedAt: new Date().toISOString(),
+          })
+          dev.updatedAt = new Date().toISOString()
+          putDevWatchParty(dev)
+        }
+        return { success: true, data: buildDevSnapshot(dev) }
+      }
+    }
+
+    return { success: false, error: "Watch party not found" }
+  } catch (error) {
+    return errorResult(error)
+  }
+}
+
+export async function getWatchPartyForParticipant(
+  inviteCode: string,
+): Promise<{ success: boolean; data?: WatchPartySnapshot; error?: string }> {
+  try {
+    const user = await requireAuthUser()
+    const code = normalizeInviteCode(inviteCode)
+
+    try {
+      await connectDB()
+      const session = await VisionWatchParty.findOne({ inviteCode: code })
+      if (session) {
+        if (session.status === "ended") {
+          return { success: false, error: "This watch party has ended." }
+        }
+        if (session.expiresAt.getTime() < Date.now()) {
+          return { success: false, error: "Invite has expired" }
+        }
+        const ok = session.participants.some((p) => p.authUserId === user.userId)
+        if (!ok) return { success: false, error: "You are not part of this watch party." }
+        return { success: true, data: serialize(session, session.inviteToken) }
+      }
+    } catch {
+      // continue to in-memory
+    }
+
+    if (isDevAuthBypassEnabled()) {
+      const dev = getDevWatchParty(code)
+      if (dev) {
+        if (dev.status === "ended") {
+          return { success: false, error: "This watch party has ended." }
+        }
+        if (new Date(dev.expiresAt).getTime() < Date.now()) {
+          return { success: false, error: "Invite has expired" }
+        }
+        const ok = dev.participants.some((p) => p.authUserId === user.userId)
+        if (!ok) return { success: false, error: "You are not part of this watch party." }
+        return { success: true, data: buildDevSnapshot(dev) }
+      }
+    }
+
+    return { success: false, error: "Watch party not found" }
+  } catch (error) {
+    return errorResult(error)
+  }
+}
+
+export async function endWatchParty(
+  inviteCode: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const user = await requireAuthUser()
+    const code = normalizeInviteCode(inviteCode)
+
+    try {
+      await connectDB()
+      const session = await VisionWatchParty.findOne({ inviteCode: code })
+      if (session) {
+        if (session.hostId !== user.userId) return { success: false, error: "Forbidden" }
+        session.status = "ended"
+        await session.save()
+        return { success: true }
+      }
+    } catch {
+      // try in-memory
+    }
+
+    if (hasDevWatchParty(code) && isDevAuthBypassEnabled()) {
+      const dev = getDevWatchParty(code)!
+      if (dev.hostId !== user.userId) return { success: false, error: "Forbidden" }
+      dev.status = "ended"
+      dev.updatedAt = new Date().toISOString()
+      putDevWatchParty(dev)
+      return { success: true }
+    }
+
+    return { success: false, error: "Not found" }
+  } catch (error) {
+    return errorResult(error)
+  }
+}
+
+export async function recordPlaybackState(
+  inviteCode: string,
+  state: { isPlaying: boolean; positionSeconds: number },
+): Promise<{ success: boolean }> {
+  try {
+    const user = await requireAuthUser()
+    const code = normalizeInviteCode(inviteCode)
+
+    try {
+      await connectDB()
+      const session = await VisionWatchParty.findOne({ inviteCode: code })
+      if (session) {
+        if (session.hostId !== user.userId) return { success: false }
+
+        session.playback = {
+          isPlaying: state.isPlaying,
+          positionSeconds: Math.max(0, state.positionSeconds),
+          updatedAt: new Date(),
+          version: (session.playback?.version ?? 0) + 1,
+        }
+        if (session.status === "lobby") session.status = "active"
+        await session.save()
+        return { success: true }
+      }
+    } catch {
+      // in-memory fallback
+    }
+
+    if (hasDevWatchParty(code) && isDevAuthBypassEnabled()) {
+      const dev = getDevWatchParty(code)!
+      if (dev.hostId !== user.userId) return { success: false }
+      dev.playback = {
+        isPlaying: state.isPlaying,
+        positionSeconds: Math.max(0, state.positionSeconds),
+        updatedAt: new Date().toISOString(),
+        version: (dev.playback?.version ?? 0) + 1,
+      }
+      if (dev.status === "lobby") dev.status = "active"
+      dev.updatedAt = new Date().toISOString()
+      putDevWatchParty(dev)
+      return { success: true }
+    }
+
+    return { success: false }
+  } catch (error) {
+    console.error("[vision/watch-party/state]", error)
+    return { success: false }
+  }
+}
+
+function serialize(
+  doc: typeof VisionWatchParty.prototype,
+  token: string,
+): WatchPartySnapshot {
+  const inviteUrl = buildInviteUrl(doc.inviteCode, token)
+  return {
+    inviteCode: doc.inviteCode,
+    inviteUrl,
+    channel: doc.channel,
+    hostId: doc.hostId,
+    titleId: doc.titleId,
+    assetId: doc.assetId,
+    status: doc.status,
+    participants: doc.participants.map((p: IVisionWatchPartyParticipant) => ({
+      authUserId: p.authUserId,
+      displayName: p.displayName,
+      avatarUrl: p.avatarUrl,
+      isHost: p.isHost,
+      joinedAt: p.joinedAt.toISOString(),
+    })),
+    playback: {
+      isPlaying: doc.playback.isPlaying,
+      positionSeconds: doc.playback.positionSeconds,
+      updatedAt: doc.playback.updatedAt.toISOString(),
+      version: doc.playback.version,
+    },
+    expiresAt: doc.expiresAt.toISOString(),
+  }
+}
+
+function buildInviteUrl(inviteCode: string, token: string): string {
+  const base = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
+  return `${base.replace(/\/$/g, "")}/invite/${inviteCode}?token=${token}`
+}
+
+function generateInviteCode(): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+  return Array.from({ length: 8 })
+    .map(() => alphabet[Math.floor(Math.random() * alphabet.length)])
+    .join("")
+}
+
+function errorResult<T>(error: unknown): {
+  success: boolean
+  data?: T
+  error?: string
+} {
+  if (error instanceof Error) {
+    if (error.name === "UnauthorizedError") return { success: false, error: "Unauthorized" }
+    console.error("[vision/watch-party]", error)
+    return { success: false, error: error.message }
+  }
+  return { success: false, error: "Unknown error" }
+}
