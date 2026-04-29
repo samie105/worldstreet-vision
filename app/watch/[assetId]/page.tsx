@@ -1,12 +1,15 @@
 import { notFound } from "next/navigation"
 
 import { getAuthUser } from "@/lib/auth/clerk"
-import { getAssetById, getTitleById } from "@/lib/catalog/queries"
+import { getWatchPartyForParticipant } from "@/lib/actions/watch-party"
+import { getAssetById, getTitleById, listRelatedTitles } from "@/lib/catalog/queries"
+import type { CatalogTitle } from "@/lib/catalog/types"
 import { getMockNextEpisode, getMockTitleById } from "@/lib/catalog/mock-data"
 import { signCloudflarePlayback } from "@/lib/video/cloudflare-stream"
 import { connectDB } from "@/lib/db/mongodb"
 import VisionWatchProgress from "@/models/VisionWatchProgress"
 import { WatchExperience } from "@/components/player/watch-experience"
+import { withPartyQueryOnWatchHref } from "@/lib/watch-party/watch-url"
 
 interface WatchPageProps {
   params: Promise<{ assetId: string }>
@@ -38,8 +41,29 @@ export default async function WatchPage({ params, searchParams }: WatchPageProps
         iframeUrl: "",
       }
     : signCloudflarePlayback(asset.cloudflareVideoUid!, asset.signed)
-  let resumeAt = Number(query.t ?? 0)
-  if ((!resumeAt || Number.isNaN(resumeAt)) && title) {
+  let resumeAt = 0
+  let partyInitialIsPlaying: boolean | null = null
+  let partyPlaybackResolved = false
+
+  let partyGuestHint = false
+
+  const partyCode = query.party
+  if (partyCode && partyCode !== "new") {
+    const party = await getWatchPartyForParticipant(partyCode)
+    if (party.success && party.data) {
+      resumeAt = party.data.playback.positionSeconds
+      partyInitialIsPlaying = party.data.playback.isPlaying
+      partyPlaybackResolved = true
+      partyGuestHint = party.data.hostId !== viewer.userId
+    }
+  }
+
+  if (!partyPlaybackResolved) {
+    const tParam = Number(query.t ?? 0)
+    if (!Number.isNaN(tParam) && tParam > 0) resumeAt = tParam
+  }
+
+  if (!partyPlaybackResolved && (!resumeAt || Number.isNaN(resumeAt)) && title) {
     try {
       await connectDB()
       const progress = await VisionWatchProgress.findOne({
@@ -75,6 +99,18 @@ export default async function WatchPage({ params, searchParams }: WatchPageProps
     }
   }
 
+  if (nextUp && partyCode && partyCode !== "new") {
+    nextUp = {
+      ...nextUp,
+      href: withPartyQueryOnWatchHref(nextUp.href, partyCode),
+    }
+  }
+
+  let relatedTitles: CatalogTitle[] = []
+  if (title) {
+    relatedTitles = await listRelatedTitles(title.slug, title.genres, 18)
+  }
+
   return (
     <WatchExperience
       asset={asset}
@@ -82,8 +118,11 @@ export default async function WatchPage({ params, searchParams }: WatchPageProps
       playback={bundle}
       resumeAt={resumeAt}
       partyMode={query.party ?? null}
+      partyInitialIsPlaying={partyInitialIsPlaying}
+      partyGuestHint={partyGuestHint}
       episodeLabel={episodeLabel}
       nextUp={nextUp}
+      relatedTitles={relatedTitles}
     />
   )
 }

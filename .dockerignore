@@ -1,0 +1,11 @@
+# BuildKit cache mounts `tsconfig.tsbuildinfo` during `npm run build` (Nixpacks/Coolify).
+# If this file is copied into the image first, the mount fails: "not a directory".
+*.tsbuildinfo
+
+node_modules
+.next
+.git
+.gitignore
+.env
+.env.*
+!.env.example

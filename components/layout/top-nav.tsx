@@ -37,6 +37,10 @@ const NAV_LINKS = [
   { name: "Watch Together", href: "/watch-together", icon: UserMultipleIcon },
 ] as const
 
+/** Ghost icon buttons on dark gradient nav (until page scroll). */
+const NAV_ON_DARK_TRIGGER =
+  "text-white hover:bg-white/10 hover:text-white [&_svg]:text-white"
+
 interface TopNavProps {
   recommendations?: CatalogTitle[]
 }
@@ -47,6 +51,8 @@ export function TopNav({ recommendations = [] }: TopNavProps) {
   const { profile } = useProfile()
   const { activeProfile } = useViewerProfiles()
   const [scrolled, setScrolled] = React.useState(false)
+
+  const navOnDark = !scrolled
 
   React.useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24)
@@ -61,8 +67,8 @@ export function TopNav({ recommendations = [] }: TopNavProps) {
       className={cn(
         "fixed inset-x-0 top-0 z-40 transition-all duration-300",
         scrolled
-          ? "bg-background/85 backdrop-blur-xl border-b border-border/60"
-          : "bg-gradient-to-b from-black/65 via-black/30 to-transparent",
+          ? "bg-background/88 backdrop-blur-xl shadow-[0_1px_0_0_rgba(255,255,255,0.04)]"
+          : "bg-gradient-to-b from-black/72 via-black/38 to-transparent",
       )}
     >
       <div className="mx-auto flex h-14 max-w-[1600px] items-center gap-3 px-4 md:h-16 md:px-12">
@@ -76,8 +82,14 @@ export function TopNav({ recommendations = [] }: TopNavProps) {
             priority
             unoptimized
           />
-          <span className="text-sm font-semibold tracking-tight text-white drop-shadow-sm md:text-base">
-            Worldstreet <span className="text-primary">Vision</span>
+          <span
+            className={cn(
+              "text-sm font-semibold tracking-tight md:text-base",
+              navOnDark ? "text-white drop-shadow-sm" : "text-foreground",
+            )}
+          >
+            Worldstreet{" "}
+            <span className={navOnDark ? "text-white" : "text-primary"}>Vision</span>
           </span>
         </Link>
 
@@ -93,10 +105,14 @@ export function TopNav({ recommendations = [] }: TopNavProps) {
                 href={link.href}
                 data-testid={`nav-${link.name.toLowerCase().replace(/\s+/g, "-")}`}
                 className={cn(
-                  "relative px-3 py-1.5 text-[13px] font-medium transition-colors rounded-md",
-                  isActive
-                    ? "text-foreground"
-                    : "text-foreground/65 hover:text-foreground",
+                  "relative rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors",
+                  navOnDark
+                    ? isActive
+                      ? "text-white"
+                      : "text-white/72 hover:text-white"
+                    : isActive
+                      ? "text-foreground"
+                      : "text-foreground/65 hover:text-foreground",
                 )}
               >
                 {link.name}
@@ -113,21 +129,30 @@ export function TopNav({ recommendations = [] }: TopNavProps) {
         </nav>
 
         <div className="ml-auto flex items-center gap-1.5 md:gap-2">
-          <SearchPalette className="hidden sm:block" />
+          <SearchPalette navOnDark={navOnDark} className="hidden sm:block" />
           <Link
             href="/search"
             aria-label="Search"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-foreground/85 hover:bg-accent sm:hidden"
+            className={cn(
+              "inline-flex h-9 w-9 items-center justify-center rounded-full sm:hidden",
+              navOnDark
+                ? "text-white hover:bg-white/10"
+                : "text-foreground/85 hover:bg-accent",
+            )}
           >
             <HugeiconsIcon icon={Search01Icon} strokeWidth={2} className="size-4" />
           </Link>
-          <ThemeToggle />
-          <NotificationBell recommendations={recommendations} />
+          <ThemeToggle navOnDark={navOnDark} />
+          <NotificationBell recommendations={recommendations} triggerClassName={navOnDark ? NAV_ON_DARK_TRIGGER : undefined} />
 
           <Popover>
             <PopoverTrigger
               render={
-                <Button variant="ghost" size="icon-sm" className="rounded-full" />
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className={cn("rounded-full", navOnDark && NAV_ON_DARK_TRIGGER)}
+                />
               }
             >
               {activeProfile ? (
@@ -145,7 +170,12 @@ export function TopNav({ recommendations = [] }: TopNavProps) {
                   />
                 </span>
               ) : (
-                <span className="flex size-7 items-center justify-center rounded-full bg-muted text-xs font-semibold">
+                <span
+                  className={cn(
+                    "flex size-7 items-center justify-center rounded-full text-xs font-semibold",
+                    navOnDark ? "bg-white/15 text-white" : "bg-muted",
+                  )}
+                >
                   {(profile?.displayName ?? user?.firstName ?? "U").slice(0, 1).toUpperCase()}
                 </span>
               )}
@@ -201,7 +231,7 @@ export function TopNav({ recommendations = [] }: TopNavProps) {
   )
 }
 
-function ThemeToggle() {
+function ThemeToggle({ navOnDark }: { navOnDark?: boolean }) {
   const { resolvedTheme, setTheme } = useTheme()
   const isDark = resolvedTheme !== "light"
 
@@ -209,7 +239,7 @@ function ThemeToggle() {
     <Button
       variant="ghost"
       size="icon-sm"
-      className="rounded-full"
+      className={cn("rounded-full", navOnDark && NAV_ON_DARK_TRIGGER)}
       onClick={() => setTheme(isDark ? "light" : "dark")}
       aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
       title={isDark ? "Switch to light mode" : "Switch to dark mode"}

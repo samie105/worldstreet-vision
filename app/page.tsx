@@ -92,9 +92,9 @@ function HomeSkeleton() {
       {Array.from({ length: 3 }).map((_, idx) => (
         <div key={idx} className="space-y-3">
           <Skeleton className="h-5 w-44" />
-          <div className="flex gap-3">
-            {Array.from({ length: 6 }).map((_, j) => (
-              <Skeleton key={j} className="aspect-video w-[19%] rounded-xl" />
+          <div className="flex gap-4">
+            {Array.from({ length: 4 }).map((_, j) => (
+              <Skeleton key={j} className="aspect-video w-[28%] shrink-0 rounded-xl" />
             ))}
           </div>
         </div>

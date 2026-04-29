@@ -25,13 +25,16 @@ function SheetContent({
   children,
   side = "right",
   showCloseButton = true,
+  keepMounted = false,
   ...props
 }: SheetPrimitive.Popup.Props & {
   side?: "top" | "right" | "bottom" | "left"
   showCloseButton?: boolean
+  /** Keep popup mounted while closed so children (e.g. realtime subscriptions) stay alive. */
+  keepMounted?: boolean
 }) {
   return (
-    <SheetPrimitive.Portal>
+    <SheetPrimitive.Portal keepMounted={keepMounted}>
       <SheetPrimitive.Backdrop className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0" />
       <SheetPrimitive.Popup
         data-slot="sheet-content"

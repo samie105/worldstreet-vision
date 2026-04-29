@@ -6,6 +6,14 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { UserMultipleIcon } from "@hugeicons/core-free-icons"
 
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { useAuth } from "@/components/auth-provider"
 import { saveWatchProgress } from "@/lib/actions/progress"
@@ -14,6 +22,7 @@ import type { CloudflarePlaybackResult } from "@/lib/video/cloudflare-stream"
 import type { WatchPartySnapshot } from "@/lib/watch-party/snapshot"
 import { VisionPlayer } from "@/components/player/vision-player"
 import { WatchPartyPanel } from "@/components/watch-party/watch-party-panel"
+import { withPartyQueryOnWatchHref } from "@/lib/watch-party/watch-url"
 
 interface NextUpInfo {
   label: string
@@ -27,9 +36,18 @@ interface WatchExperienceProps {
   playback: CloudflarePlaybackResult
   resumeAt: number
   partyMode: string | null
+  /**
+   * Server-hydrated from the watch party when `?party=` is set (not `new`).
+   * Drives initial play/pause so guests match the host before Ably connects.
+   */
+  partyInitialIsPlaying?: boolean | null
+  /** True when server knows this viewer is not the party host (instant guest transport lock). */
+  partyGuestHint?: boolean
   /** Series episode label like "S1 · E2 — Opening Bell". */
   episodeLabel?: string | null
   nextUp?: NextUpInfo | null
+  /** Suggested titles for the bottom-of-player carousel (genre-matched). */
+  relatedTitles?: CatalogTitle[]
 }
 
 const PROGRESS_INTERVAL_MS = 15_000
@@ -40,8 +58,11 @@ export function WatchExperience({
   playback,
   resumeAt,
   partyMode,
+  partyInitialIsPlaying = null,
+  partyGuestHint = false,
   episodeLabel,
   nextUp,
+  relatedTitles = [],
 }: WatchExperienceProps) {
   const router = useRouter()
   const { user } = useAuth()
@@ -49,30 +70,35 @@ export function WatchExperience({
   const [isPartyOpen, setIsPartyOpen] = React.useState(partyMode !== null)
   const [startedAt] = React.useState(() => resumeAt || 0)
   const [activePartySession, setActivePartySession] = React.useState<WatchPartySnapshot | null>(null)
+  const [leaveWatchOpen, setLeaveWatchOpen] = React.useState(false)
 
   const onPartySessionChange = React.useCallback((next: WatchPartySnapshot | null) => {
     setActivePartySession(next)
   }, [])
 
-  const handlePartySheetOpenChange = React.useCallback(
-    (open: boolean) => {
-      if (
-        !open &&
-        activePartySession &&
-        user?.userId === activePartySession.hostId
-      ) {
-        if (
-          !window.confirm(
-            "Close the Watch Together panel? The party stays active for guests until you choose “End party for everyone” in this panel.",
-          )
-        ) {
-          return
-        }
-      }
-      setIsPartyOpen(open)
-    },
-    [activePartySession, user?.userId],
-  )
+  const transportMode =
+    user &&
+    partyMode &&
+    partyMode !== "new" &&
+    (partyGuestHint ||
+      (!!activePartySession && user.userId !== activePartySession.hostId))
+      ? "follow-host"
+      : "full"
+
+  const shouldAutoPlay = partyInitialIsPlaying === null ? true : partyInitialIsPlaying
+
+  const requestLeaveWatch = React.useCallback(() => {
+    if (activePartySession) {
+      setLeaveWatchOpen(true)
+      return
+    }
+    router.back()
+  }, [activePartySession, router])
+
+  const confirmLeaveWatch = React.useCallback(() => {
+    setLeaveWatchOpen(false)
+    router.back()
+  }, [router])
 
   React.useEffect(() => {
     if (!title) return
@@ -94,7 +120,7 @@ export function WatchExperience({
 
   const onLoaded = () => {
     const node = playerRef.current
-    if (node && resumeAt > 5) {
+    if (node && resumeAt >= 0.25 && Number.isFinite(resumeAt)) {
       try {
         node.currentTime = resumeAt
       } catch {
@@ -103,23 +129,73 @@ export function WatchExperience({
     }
   }
 
+  const partyCodeForNext =
+    activePartySession?.inviteCode ??
+    (partyMode && partyMode !== "new" ? partyMode : null)
+
+  const nextUpEffective = React.useMemo(() => {
+    if (!nextUp) return undefined
+    if (!partyCodeForNext) return nextUp
+    return {
+      ...nextUp,
+      href: withPartyQueryOnWatchHref(nextUp.href, partyCodeForNext),
+    }
+  }, [nextUp, partyCodeForNext])
+
+  const detailFields = React.useMemo(() => {
+    if (!title) return null
+    return {
+      synopsis: title.synopsis,
+      cast: title.cast,
+      director: title.director,
+      genres: title.genres,
+    }
+  }, [title])
+
   return (
     <div className="relative flex h-full w-full flex-col bg-black text-white">
-      <div className="relative flex-1 min-h-0">
+      <Dialog open={leaveWatchOpen} onOpenChange={setLeaveWatchOpen}>
+        <DialogContent showCloseButton={false} className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Leave playback?</DialogTitle>
+            <DialogDescription>
+              {activePartySession && user?.userId === activePartySession.hostId
+                ? "You can re-open Watch Together from the player anytime. Guests stay synced until you end the party from the panel."
+                : activePartySession
+                  ? "You’ll leave this synced session. You can return with the invite link to watch together again."
+                  : "Leave this title?"}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={() => setLeaveWatchOpen(false)}>
+              Stay
+            </Button>
+            <Button type="button" variant="default" onClick={confirmLeaveWatch}>
+              Leave
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <div className="relative min-h-0 flex-1">
         <VisionPlayer
           src={playback.hlsUrl}
           poster={playback.posterUrl}
           videoRef={playerRef}
-          autoPlay
+          autoPlay={shouldAutoPlay}
+          transportMode={transportMode}
           onLoadedMetadata={onLoaded}
-          onBack={() => router.back()}
+          onBack={requestLeaveWatch}
           meta={{
             title: title?.title ?? "Worldstreet Vision",
             subtitle: title?.tagline,
             seriesLabel: episodeLabel ?? undefined,
           }}
           introEndsAtSeconds={45}
-          nextUp={nextUp ?? undefined}
+          nextUp={nextUpEffective}
+          detailFields={detailFields ?? undefined}
+          relatedTitles={relatedTitles}
+          partyInviteCode={partyCodeForNext}
           rightActions={
             <Button
               variant="glass"
@@ -134,8 +210,9 @@ export function WatchExperience({
         />
       </div>
 
-      <Sheet open={isPartyOpen} onOpenChange={handlePartySheetOpenChange}>
+      <Sheet open={isPartyOpen} onOpenChange={setIsPartyOpen}>
         <SheetContent
+          keepMounted
           side="right"
           className="w-full max-w-md bg-vision-stage text-vision-stage-foreground"
         >

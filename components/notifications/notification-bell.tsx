@@ -26,6 +26,7 @@ import type { CatalogTitle } from "@/lib/catalog/types"
 
 interface NotificationBellProps {
   recommendations: CatalogTitle[]
+  triggerClassName?: string
 }
 
 const KIND_ICON: Record<VisionNotificationKind, typeof PlayIcon> = {
@@ -43,7 +44,7 @@ const TONE_CLASS = {
   warning: "bg-amber-500/15 text-amber-400",
 } as const
 
-export function NotificationBell({ recommendations }: NotificationBellProps) {
+export function NotificationBell({ recommendations, triggerClassName }: NotificationBellProps) {
   const [items, setItems] = React.useState<VisionNotification[]>(() =>
     buildSeedNotifications(recommendations),
   )
@@ -66,7 +67,7 @@ export function NotificationBell({ recommendations }: NotificationBellProps) {
           <Button
             variant="ghost"
             size="icon-sm"
-            className="relative rounded-full"
+            className={cn("relative rounded-full", triggerClassName)}
             aria-label={`Notifications${unread > 0 ? `, ${unread} unread` : ""}`}
           />
         }

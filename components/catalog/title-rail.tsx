@@ -122,7 +122,7 @@ export function TitleRail({
         <motion.div
           ref={trackRef}
           className={cn(
-            "scrollbar-none flex snap-x snap-mandatory gap-2.5 overflow-x-auto pb-3 md:gap-3.5",
+            "scrollbar-none flex snap-x snap-mandatory gap-4 overflow-x-auto pb-3 md:gap-5",
             "scroll-pl-4 md:scroll-pl-12",
           )}
         >
@@ -135,8 +135,8 @@ export function TitleRail({
               transition={{ duration: 0.32, delay: index * 0.02, ease: "easeOut" }}
               className={cn(
                 "snap-start shrink-0",
-                // 1.5 cards on small mobile, 2.2 on larger phones, then 3, 4, 5, 6
-                "w-[64%] sm:w-[44%] md:w-[31%] lg:w-[23.5%] xl:w-[19%] 2xl:w-[16%]",
+                // Prioritize readability: ~3/4 viewport on phones, progressively fewer tiles on wide screens
+                "w-[75%] sm:w-[58%] md:w-[46%] lg:w-[38%] xl:w-[32%] 2xl:w-[28%]",
               )}
             >
               <TitleCard

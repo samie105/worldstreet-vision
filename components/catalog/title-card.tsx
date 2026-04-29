@@ -135,7 +135,7 @@ export function TitleCard({
             src={title.backdropUrl}
             alt=""
             fill
-            sizes="(max-width: 640px) 80vw, (max-width: 1024px) 33vw, 18vw"
+            sizes="(max-width: 640px) 75vw, (max-width: 1024px) 46vw, (max-width: 1536px) 32vw, 28vw"
             className="object-cover transition-[transform,filter] duration-[480ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:brightness-[1.04]"
             unoptimized
           />
@@ -170,12 +170,12 @@ export function TitleCard({
 
         <div className="absolute inset-x-3 bottom-3 z-[2] flex flex-col gap-1.5 text-white">
           <p
-            className="text-[13px] font-semibold leading-tight md:text-sm"
+            className="text-sm font-semibold leading-snug md:text-base"
             style={{ overflowWrap: "anywhere" }}
           >
             {title.title}
           </p>
-          <div className="flex items-center gap-1.5 text-[10px] text-white/80">
+          <div className="flex items-center gap-1.5 text-[11px] text-white/85 md:text-xs">
             <span>{title.releaseYear}</span>
             <span aria-hidden>·</span>
             <span className="capitalize">{title.kind}</span>

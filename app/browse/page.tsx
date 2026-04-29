@@ -49,7 +49,7 @@ export default async function BrowsePage({ searchParams }: BrowsePageProps) {
           Nothing here yet. Try another genre.
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 sm:gap-7 lg:grid-cols-2 xl:grid-cols-3">
           {titles.map((title) => (
             <TitleCard key={title._id} title={title} />
           ))}

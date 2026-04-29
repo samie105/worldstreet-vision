@@ -15,11 +15,13 @@ import type { CatalogTitle } from "@/lib/catalog/types"
 
 interface SearchPaletteProps {
   className?: string
+  /** Light-on-dark styling for the collapsed search field when the bar sits over imagery. */
+  navOnDark?: boolean
 }
 
 const SUGGESTED_GENRES = ["Thriller", "Finance", "Drama", "Series", "Documentary", "Action"]
 
-export function SearchPalette({ className }: SearchPaletteProps) {
+export function SearchPalette({ className, navOnDark = false }: SearchPaletteProps) {
   const router = useRouter()
   const [query, setQuery] = React.useState("")
   const [open, setOpen] = React.useState(false)
@@ -97,7 +99,10 @@ export function SearchPalette({ className }: SearchPaletteProps) {
       <form onSubmit={onSubmit} className="relative">
         <HugeiconsIcon
           icon={Search01Icon}
-          className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+          className={cn(
+            "absolute left-2.5 top-1/2 size-4 -translate-y-1/2",
+            navOnDark ? "text-white/65" : "text-muted-foreground",
+          )}
           strokeWidth={2}
         />
         <Input
@@ -106,7 +111,11 @@ export function SearchPalette({ className }: SearchPaletteProps) {
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => setOpen(true)}
           placeholder="Search titles, genres, cast"
-          className="h-9 w-56 pl-8 pr-9 md:w-72"
+          className={cn(
+            "h-9 w-56 pl-8 pr-9 md:w-72",
+            navOnDark &&
+              "border-white/28 bg-black/35 text-white shadow-none placeholder:text-white/45 focus-visible:border-white/40 focus-visible:ring-white/25",
+          )}
           aria-label="Search Vision"
           data-testid="search-palette-input"
         />
@@ -117,7 +126,12 @@ export function SearchPalette({ className }: SearchPaletteProps) {
               setQuery("")
               inputRef.current?.focus()
             }}
-            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-muted-foreground hover:text-foreground"
+            className={cn(
+              "absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1",
+              navOnDark
+                ? "text-white/70 hover:bg-white/10 hover:text-white"
+                : "text-muted-foreground hover:text-foreground",
+            )}
             aria-label="Clear search"
           >
             <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} className="size-3.5" />

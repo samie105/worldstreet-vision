@@ -9,6 +9,14 @@ import { Copy01Icon, UserMultipleIcon, PlayIcon } from "@hugeicons/core-free-ico
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Avatar, AvatarFallback, AvatarImage, AvatarGroup } from "@/components/ui/avatar"
 import { useAuth } from "@/components/auth-provider"
 import {
@@ -19,6 +27,9 @@ import {
 } from "@/lib/actions/watch-party"
 import type { WatchPartySnapshot } from "@/lib/watch-party/snapshot"
 import type { CatalogAsset, CatalogTitle } from "@/lib/catalog/types"
+import type { VisionProfileData } from "@/lib/actions/profile"
+import type { AuthUser } from "@/components/auth-provider"
+import { useProfile } from "@/components/profile-provider"
 
 interface WatchPartyPanelProps {
   asset: CatalogAsset
@@ -46,7 +57,42 @@ interface PresenceMember {
   isHost: boolean
 }
 
-const DRIFT_TOLERANCE = 1.2
+/** Clerk / dev default can point at our app mark; prefer initials instead. */
+function isBrandedPlaceholderAvatarUrl(url: string): boolean {
+  return url.trim().toLowerCase().includes("/worldstreet-logo/")
+}
+
+function buildPresenceMember(
+  user: AuthUser,
+  session: WatchPartySnapshot,
+  profile: VisionProfileData | null,
+): PresenceMember {
+  const persistedName = profile?.displayName?.trim()
+  const displayName =
+    persistedName || `${user.firstName} ${user.lastName}`.trim() || user.email
+
+  const persistedAvatar = profile?.avatarUrl?.trim() ?? ""
+  let avatarUrl = persistedAvatar
+  if (!avatarUrl) {
+    const fromAuth = user.imageUrl?.trim() ?? ""
+    if (fromAuth && !isBrandedPlaceholderAvatarUrl(fromAuth)) avatarUrl = fromAuth
+  }
+
+  return {
+    authUserId: user.userId,
+    displayName,
+    avatarUrl,
+    isHost: session.hostId === user.userId,
+  }
+}
+
+function avatarSrcForMember(member: PresenceMember): string | undefined {
+  const u = member.avatarUrl?.trim()
+  if (!u || isBrandedPlaceholderAvatarUrl(u)) return undefined
+  return u
+}
+
+const DRIFT_TOLERANCE = 1.25
 const HARD_DRIFT = 4
 
 export function WatchPartyPanel({
@@ -61,18 +107,58 @@ export function WatchPartyPanel({
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const { user } = useAuth()
+  const { profile } = useProfile()
+  const profileRef = React.useRef(profile)
+  profileRef.current = profile
   const [session, setSession] = React.useState<WatchPartySnapshot | null>(null)
   const [pending, setPending] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [hydrateError, setHydrateError] = React.useState<string | null>(null)
   const [endingParty, setEndingParty] = React.useState(false)
+  const [endPartyOpen, setEndPartyOpen] = React.useState(false)
   const [members, setMembers] = React.useState<PresenceMember[]>([])
   const channelRef = React.useRef<RealtimeChannel | null>(null)
   const realtimeRef = React.useRef<RealtimeClient | null>(null)
   const isHost = !!session && !!user && session.hostId === user.userId
   const lastBroadcastRef = React.useRef<number>(0)
+  const lastDbPersistRef = React.useRef<number>(0)
+  const broadcastVersionRef = React.useRef(0)
+  const lastGuestVersionRef = React.useRef(0)
+  const guestSyncedInviteRef = React.useRef<string | null>(null)
+
+  /** Ably broadcasts for guest sync every few seconds; DB persists only when `persist` is true (play/pause/seek). */
+  const publishHostPlayback = React.useCallback(
+    (inviteCode: string, options?: { persist?: boolean }) => {
+      const channel = channelRef.current
+      const node = playerRef.current as HTMLVideoElement | null
+      if (!channel || !node) return
+      const now = Date.now()
+      lastBroadcastRef.current = now
+      const positionSeconds = Number(node.currentTime ?? 0)
+      const isPlaying = !node.paused
+      const version = ++broadcastVersionRef.current
+      const message: PlaybackMessage = {
+        type: "playback",
+        isPlaying,
+        positionSeconds,
+        serverAt: now,
+        version,
+        fromHost: true,
+      }
+      void channel.publish("playback", message)
+      if (options?.persist) {
+        lastDbPersistRef.current = Date.now()
+        void recordPlaybackState(inviteCode, { isPlaying, positionSeconds })
+      }
+    },
+    [playerRef],
+  )
 
   const startSession = React.useCallback(async () => {
+    if (!user) {
+      setError("Sign in to start a watch party.")
+      return
+    }
     if (!title) {
       setError("This asset is not part of a title yet.")
       return
@@ -90,11 +176,15 @@ export function WatchPartyPanel({
     } finally {
       setPending(false)
     }
-  }, [asset._id, title])
+  }, [asset._id, title, user])
 
   React.useEffect(() => {
     onSessionChange?.(session)
   }, [session, onSessionChange])
+
+  React.useEffect(() => {
+    if (!session) guestSyncedInviteRef.current = null
+  }, [session])
 
   React.useEffect(() => {
     if (!initialMode || initialMode === "new" || session) return
@@ -124,6 +214,28 @@ export function WatchPartyPanel({
     }
   }, [initialMode, session, startSession])
 
+  /** One-time align for guests from the server snapshot (Ably may trail). */
+  React.useEffect(() => {
+    if (!session || !user || session.hostId === user.userId) return
+    if (guestSyncedInviteRef.current === session.inviteCode) return
+    guestSyncedInviteRef.current = session.inviteCode
+    lastGuestVersionRef.current = session.playback.version
+    const node = playerRef.current as HTMLVideoElement | null
+    if (!node) return
+    try {
+      node.currentTime = session.playback.positionSeconds
+      if (session.playback.isPlaying) void node.play().catch(() => {})
+      else node.pause()
+    } catch {
+      // ignore
+    }
+  }, [session, user, playerRef])
+
+  React.useEffect(() => {
+    if (!session || !user || session.hostId !== user.userId) return
+    broadcastVersionRef.current = Math.max(broadcastVersionRef.current, session.playback.version)
+  }, [session, user])
+
   React.useEffect(() => {
     if (!session || !user) return
     const realtime = new Ably.Realtime({
@@ -150,41 +262,39 @@ export function WatchPartyPanel({
     const onMessage = (message: Message) => {
       if (message.name !== "playback") return
       const data = message.data as PlaybackMessage
-      const node = playerRef.current as
-        | (HTMLVideoElement & {
-            currentTime?: number
-            paused?: boolean
-            play?: () => Promise<void>
-            pause?: () => void
-          })
-        | null
-      if (!node || isHost) return
+      if (!data || typeof data.version !== "number") return
 
-      const drift = Math.abs((node.currentTime ?? 0) - data.positionSeconds)
+      const node = playerRef.current as HTMLVideoElement | null
+      if (!node || isHost) return
+      if (data.version <= lastGuestVersionRef.current) return
+      lastGuestVersionRef.current = data.version
+
+      const drift = Math.abs(Number(node.currentTime ?? 0) - data.positionSeconds)
       if (drift > HARD_DRIFT) {
         try {
           node.currentTime = data.positionSeconds
-        } catch {}
+        } catch {
+          // ignore
+        }
       } else if (drift > DRIFT_TOLERANCE) {
         try {
           node.currentTime = data.positionSeconds
-        } catch {}
+        } catch {
+          // ignore
+        }
       }
 
       if (data.isPlaying && node.paused) {
-        node.play?.().catch(() => {})
+        void node.play().catch(() => {})
       } else if (!data.isPlaying && !node.paused) {
-        node.pause?.()
+        node.pause()
       }
     }
 
     channel.subscribe("playback", onMessage)
-    void channel.presence.enter({
-      authUserId: user.userId,
-      displayName: `${user.firstName} ${user.lastName}`.trim() || user.email,
-      avatarUrl: user.imageUrl,
-      isHost: session.hostId === user.userId,
-    } satisfies PresenceMember)
+    void channel.presence.enter(
+      buildPresenceMember(user, session, profileRef.current),
+    )
 
     const refreshPresence = async () => {
       const list = await channel.presence.get()
@@ -203,43 +313,51 @@ export function WatchPartyPanel({
   }, [session, user, isHost, playerRef])
 
   React.useEffect(() => {
+    const channel = channelRef.current
+    if (!channel || !session || !user || !profile) return
+    void channel.presence.update(buildPresenceMember(user, session, profile)).catch(() => {})
+  }, [profile?._id, profile?.avatarUrl, profile?.displayName, session?.inviteCode, user?.userId])
+
+  React.useEffect(() => {
+    if (!session || !isHost) return
+    const video = playerRef.current as HTMLVideoElement | null
+    if (!video) return
+
+    const onSeeked = () => publishHostPlayback(session.inviteCode, { persist: true })
+    const onPlay = () => publishHostPlayback(session.inviteCode, { persist: true })
+    const onPause = () => publishHostPlayback(session.inviteCode, { persist: true })
+
+    video.addEventListener("seeked", onSeeked)
+    video.addEventListener("play", onPlay)
+    video.addEventListener("pause", onPause)
+
+    return () => {
+      video.removeEventListener("seeked", onSeeked)
+      video.removeEventListener("play", onPlay)
+      video.removeEventListener("pause", onPause)
+    }
+  }, [session, isHost, playerRef, publishHostPlayback])
+
+  React.useEffect(() => {
     if (!session || !isHost) return
     const interval = window.setInterval(() => {
-      const channel = channelRef.current
-      const node = playerRef.current as
-        | (HTMLVideoElement & { currentTime?: number; paused?: boolean })
-        | null
-      if (!channel || !node) return
       const now = Date.now()
-      if (now - lastBroadcastRef.current < 1_500) return
-      lastBroadcastRef.current = now
-      const positionSeconds = Number(node.currentTime ?? 0)
-      const isPlaying = !node.paused
-      const message: PlaybackMessage = {
-        type: "playback",
-        isPlaying,
-        positionSeconds,
-        serverAt: now,
-        version: now,
-        fromHost: true,
-      }
-      void channel.publish("playback", message)
-      void recordPlaybackState(session.inviteCode, { isPlaying, positionSeconds })
-    }, 2_000)
+      if (now - lastBroadcastRef.current < 2_500) return
+      const persist = now - lastDbPersistRef.current >= 28_000
+      publishHostPlayback(session.inviteCode, persist ? { persist: true } : undefined)
+    }, 8_000)
     return () => window.clearInterval(interval)
-  }, [session, isHost, playerRef])
+  }, [session, isHost, publishHostPlayback])
 
-  const handleEndParty = React.useCallback(async () => {
+  const runEndParty = React.useCallback(async () => {
     if (!session) return
-    if (!window.confirm("End this watch party for everyone? Guests will stop syncing together.")) {
-      return
-    }
     setEndingParty(true)
     setError(null)
     try {
       const res = await endWatchParty(session.inviteCode)
       if (!res.success) throw new Error(res.error ?? "Failed to end party")
       setSession(null)
+      setEndPartyOpen(false)
       const params = new URLSearchParams(searchParams.toString())
       params.delete("party")
       const qs = params.toString()
@@ -273,11 +391,16 @@ export function WatchPartyPanel({
 
     return (
       <div className="flex flex-col gap-4 p-4 text-sm text-vision-stage-foreground">
+        {!user ? (
+          <p className="rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+            Sign in to host or join a watch party.
+          </p>
+        ) : null}
         <p>
-          Watch this together with friends. Vision keeps everyone in sync — the host controls play,
-          pause, and seeks.
+          Watch this together with friends. The host controls play, pause, and seek; everyone else
+          stays in sync over the network.
         </p>
-        <Button onClick={startSession} disabled={pending} size="lg" className="rounded-full">
+        <Button onClick={() => void startSession()} disabled={pending || !user} size="lg" className="rounded-full">
           <HugeiconsIcon icon={UserMultipleIcon} strokeWidth={2.5} className="size-4" />
           {pending ? "Starting…" : "Start a watch party"}
         </Button>
@@ -287,7 +410,8 @@ export function WatchPartyPanel({
           </p>
         ) : null}
         <p className="text-xs text-muted-foreground">
-          Started at {Math.floor(startedAt)}s. Joining members will sync to your current position.
+          Resume point ≈ {Math.floor(startedAt)}s when you start. Guests sync to the host as soon as
+          they connect.
         </p>
       </div>
     )
@@ -295,6 +419,31 @@ export function WatchPartyPanel({
 
   return (
     <div className="flex h-full flex-col gap-4 p-4 text-sm">
+      <Dialog open={endPartyOpen} onOpenChange={setEndPartyOpen}>
+        <DialogContent showCloseButton={false} className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>End watch party?</DialogTitle>
+            <DialogDescription>
+              Everyone in this session will stop syncing together. Guests keep watching this title
+              on their own.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={() => setEndPartyOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={endingParty}
+              onClick={() => void runEndParty()}
+            >
+              {endingParty ? "Ending…" : "End for everyone"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="rounded-xl border border-border/30 bg-black/30 p-4">
         <p className="text-xs uppercase tracking-wider text-muted-foreground">Invite link</p>
         <div className="mt-1.5 flex items-center gap-2">
@@ -329,7 +478,7 @@ export function WatchPartyPanel({
             <AvatarGroup>
               {members.slice(0, 6).map((member) => (
                 <Avatar key={member.authUserId} size="default">
-                  <AvatarImage src={member.avatarUrl} alt="" />
+                  <AvatarImage src={avatarSrcForMember(member)} alt="" />
                   <AvatarFallback>
                     {member.displayName.slice(0, 1).toUpperCase()}
                   </AvatarFallback>
@@ -367,8 +516,8 @@ export function WatchPartyPanel({
         </p>
         <p className="mt-1">
           {isHost
-            ? "Pause, seek, or change quality whenever you like — guests follow."
-            : "Vision keeps you within a second of the host. Heavy lag triggers a quick re-sync."}
+            ? "Only you can pause, seek, or scrub. Changes sync to guests right away."
+            : "Playback is locked to the host. You can still change volume, captions, and fullscreen."}
         </p>
       </div>
 
@@ -377,9 +526,9 @@ export function WatchPartyPanel({
           variant="destructive"
           className="rounded-full"
           disabled={endingParty}
-          onClick={() => void handleEndParty()}
+          onClick={() => setEndPartyOpen(true)}
         >
-          {endingParty ? "Ending…" : "End party for everyone"}
+          End party for everyone
         </Button>
       ) : null}
 

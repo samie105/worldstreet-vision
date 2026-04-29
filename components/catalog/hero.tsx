@@ -64,36 +64,41 @@ export function Hero({ title, resumeSeconds = 0 }: HeroProps) {
           />
         ) : null}
 
-        {/* Dark mode only: cinematic gradients for text contrast on the image.
-            Light mode skips these so the hero stays clean and photo-forward. */}
-        <div className="absolute inset-0 hidden bg-[linear-gradient(90deg,rgba(0,0,0,0.78)_0%,rgba(0,0,0,0.45)_45%,rgba(0,0,0,0)_75%)] dark:block" />
-        <div className="absolute inset-0 hidden bg-[linear-gradient(180deg,transparent_45%,color-mix(in_oklch,var(--color-background)_55%,transparent)_75%,var(--color-background)_100%)] dark:block" />
-        <div className="absolute inset-0 hidden bg-[radial-gradient(80%_60%_at_50%_50%,transparent,rgba(0,0,0,0.35))] dark:block" />
+        {/* Fixed cinematic scrim — always dark overlay for legible white type (not theme-dependent). */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.78)_0%,rgba(0,0,0,0.45)_45%,rgba(0,0,0,0)_76%)]"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,transparent_42%,rgba(0,0,0,0.55)_72%,rgba(0,0,0,0.92)_100%)]"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(80%_60%_at_50%_50%,transparent,rgba(0,0,0,0.38))]"
+        />
 
         <div className="absolute inset-x-0 bottom-0">
-          <div className="mx-auto flex max-w-[1600px] flex-col gap-4 px-4 pb-10 text-foreground md:px-12 md:pb-16 dark:text-white">
+          <div className="mx-auto flex max-w-[1600px] flex-col gap-4 px-4 pb-10 text-white md:px-12 md:pb-16">
             <motion.div
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, ease: "easeOut" }}
-              className="flex items-center gap-2 text-xs"
+              className="flex items-center gap-2 text-xs text-white"
             >
-              <Badge
-                variant="premium"
-                className="bg-amber-500/20 text-amber-900 dark:bg-amber-500/25 dark:text-amber-200"
-              >
+              <Badge variant="premium" className="border border-amber-400/35 bg-amber-400/15 text-amber-50">
                 Worldstreet Original
               </Badge>
-              <span className="rounded-md border border-border px-1.5 py-0.5 text-[10px] font-semibold tracking-wide dark:border-white/30">
+              <span className="rounded-md border border-white/35 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-white">
                 {title.maturityRating.toUpperCase()}
               </span>
               {title.releaseYear ? (
-                <span className="text-[11px] text-muted-foreground dark:text-white/85">{title.releaseYear}</span>
+                <span className="text-[11px] text-white/85">{title.releaseYear}</span>
               ) : null}
-              <span aria-hidden className="text-muted-foreground dark:text-white/40">
+              <span aria-hidden className="text-white/40">
                 ·
               </span>
-              <span className="text-[11px] capitalize text-muted-foreground dark:text-white/85">{title.kind}</span>
+              <span className="text-[11px] capitalize text-white/85">{title.kind}</span>
             </motion.div>
 
             <HeroLogo title={title} />
@@ -103,7 +108,7 @@ export function Hero({ title, resumeSeconds = 0 }: HeroProps) {
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.55, delay: 0.18, ease: "easeOut" }}
-                className="max-w-2xl text-balance text-base font-medium text-foreground/90 md:text-lg dark:text-white/85"
+                className="max-w-2xl text-balance text-base font-medium text-white/90 md:text-lg"
               >
                 {title.tagline}
               </motion.p>
@@ -113,7 +118,7 @@ export function Hero({ title, resumeSeconds = 0 }: HeroProps) {
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.55, delay: 0.26, ease: "easeOut" }}
-              className="max-w-2xl text-pretty text-sm leading-relaxed text-muted-foreground md:text-base dark:text-white/80"
+              className="max-w-2xl text-pretty text-sm leading-relaxed text-white/78 md:text-base"
             >
               {title.synopsis}
             </motion.p>
@@ -134,7 +139,7 @@ export function Hero({ title, resumeSeconds = 0 }: HeroProps) {
               </Link>
               <Link
                 href={`/title/${title.slug}`}
-                className="inline-flex items-center gap-2 rounded-full border border-border bg-background/80 px-5 py-2.5 text-sm font-semibold text-foreground backdrop-blur transition hover:bg-accent dark:border-white/20 dark:bg-white/15 dark:text-white dark:hover:bg-white/25"
+                className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/12 px-5 py-2.5 text-sm font-semibold text-white backdrop-blur-md transition hover:bg-white/20"
                 data-testid="hero-info"
               >
                 <HugeiconsIcon icon={InformationCircleIcon} strokeWidth={2} className="size-4" />
@@ -143,7 +148,7 @@ export function Hero({ title, resumeSeconds = 0 }: HeroProps) {
               {title.previewClipUrl ? (
                 <button
                   onClick={() => setMuted((m) => !m)}
-                  className="ml-auto inline-flex h-10 w-10 items-center justify-center rounded-full border border-border bg-background/70 text-foreground backdrop-blur transition hover:bg-accent md:ml-2 dark:border-white/30 dark:bg-white/10 dark:text-white dark:hover:bg-white/20"
+                  className="ml-auto inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/30 bg-black/35 text-white backdrop-blur-md transition hover:bg-white/15 md:ml-2"
                   aria-label={muted ? "Unmute preview" : "Mute preview"}
                 >
                   <HugeiconsIcon
@@ -199,7 +204,7 @@ function HeroLogo({ title }: { title: CatalogTitle }) {
       {lines.map((line, lineIndex) => (
         <h1
           key={`${line}-${lineIndex}`}
-          className="text-balance font-extrabold uppercase leading-[0.95] tracking-tight text-foreground dark:text-white dark:drop-shadow-[0_8px_24px_rgba(0,0,0,0.6)]"
+          className="text-balance font-extrabold uppercase leading-[0.95] tracking-tight text-white drop-shadow-[0_8px_24px_rgba(0,0,0,0.6)]"
           style={{
             fontSize: "clamp(2.25rem, 5.5vw, 4.75rem)",
             letterSpacing: "-0.02em",
