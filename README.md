@@ -101,7 +101,9 @@ Hosts create parties from the watch screen; guests join via `/invite/[code]?toke
 ## Deployment
 
 - Hostname: **`vision.worldstreetgold.com`** — set `NEXT_PUBLIC_APP_URL` accordingly for metadata and invite links (`lib/site.ts` defaults production to this origin when unset).
-- In Clerk, add the Vision domain as an allowed satellite / frontend API URL per their docs.
+- **Clerk satellite:** On the Vision host set `NEXT_PUBLIC_CLERK_IS_SATELLITE=true`, `NEXT_PUBLIC_CLERK_DOMAIN=vision.worldstreetgold.com`, and absolute `NEXT_PUBLIC_CLERK_SIGN_IN_URL` / `NEXT_PUBLIC_CLERK_SIGN_UP_URL` pointing at your **primary** www app (see `.env.example`). Middleware must **not** swallow Clerk’s sign-in redirect (fixed in-repo).
+- On the **primary** (www / dashboard) Next app’s `ClerkProvider`, set **`allowedRedirectOrigins`** to include `https://vision.worldstreetgold.com` so Clerk may redirect back after login (see [satellite domains](https://clerk.com/docs/advanced-usage/satellite-domains)).
+- In the Clerk Dashboard, add Vision under **Domains → Satellites** and confirm redirect URLs / paths don’t default users to `dashboard.*` after auth unless intended.
 - Run `pnpm build` or `npm run build` for production.
 - Configure the Stream webhook to hit `/api/cloudflare/stream/webhook` with matching `CLOUDFLARE_STREAM_WEBHOOK_SECRET`.
 - Keep Ably keys server-side only.

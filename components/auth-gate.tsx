@@ -1,16 +1,13 @@
 "use client"
 
 import * as React from "react"
-import { usePathname, useRouter } from "next/navigation"
+import { usePathname } from "next/navigation"
+import { RedirectToSignIn } from "@clerk/nextjs"
 
 import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass"
 import { useAuth } from "@/components/auth-provider"
 
 const PUBLIC_ROUTES = ["/login", "/register", "/invite", "/profiles"]
-const LOGIN_URL =
-  process.env.NODE_ENV === "production"
-    ? "https://www.worldstreetgold.com/login"
-    : "/login"
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
   if (isDevAuthBypassEnabled()) {
@@ -22,14 +19,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 function ClerkAuthGate({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn } = useAuth()
   const pathname = usePathname()
-  const router = useRouter()
   const isPublic = PUBLIC_ROUTES.some((r) => pathname.startsWith(r))
-
-  React.useEffect(() => {
-    if (!isPublic && isLoaded && !isSignedIn) {
-      router.replace(LOGIN_URL)
-    }
-  }, [isLoaded, isPublic, isSignedIn, router])
 
   if (isPublic) {
     return <>{children}</>
@@ -40,7 +30,8 @@ function ClerkAuthGate({ children }: { children: React.ReactNode }) {
   }
 
   if (!isSignedIn) {
-    return <AuthLoadingState label="Redirecting to login…" />
+    /** Uses Clerk satellite / primary sign-in URL + correct return path (not a bare www redirect). */
+    return <RedirectToSignIn />
   }
 
   return <>{children}</>

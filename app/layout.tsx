@@ -96,6 +96,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             domain: "worldstreetgold.com",
             isSatellite: true,
             signInUrl: "https://www.worldstreetgold.com/login",
+            signUpUrl: "https://www.worldstreetgold.com/register",
           }
         : {})}
     >

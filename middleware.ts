@@ -3,11 +3,6 @@ import { NextResponse, type NextRequest } from "next/server"
 
 import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass"
 
-const isProduction = process.env.NODE_ENV === "production"
-const LOGIN_URL = isProduction
-  ? "https://www.worldstreetgold.com/login"
-  : "/login"
-
 const isPublicRoute = createRouteMatcher([
   "/login(.*)",
   "/register(.*)",
@@ -29,28 +24,28 @@ const isWebhookRoute = createRouteMatcher([
   "/api/cloudflare/stream/webhook(.*)",
 ])
 
+/**
+ * Do not catch `auth.protect()` — Clerk throws a control-flow redirect that includes
+ * satellite `returnBackUrl`. A plain redirect to www/login drops that and users land
+ * on whatever default path is set in Clerk (e.g. dashboard.worldstreetgold.com).
+ *
+ * For APIs, `protect()` would 404 unauthenticated requests; use `userId` + 401 instead.
+ */
 const clerkMw = clerkMiddleware(async (auth, req) => {
   if (isWebhookRoute(req)) {
     return NextResponse.next()
   }
 
-  if (!isPublicRoute(req)) {
-    try {
-      await auth.protect()
-    } catch {
-      if (isProduction) {
-        return NextResponse.redirect(LOGIN_URL)
-      }
-      return NextResponse.redirect(new URL(LOGIN_URL, req.url))
-    }
-  }
-
   if (isProtectedApi(req)) {
-    try {
-      await auth.protect()
-    } catch {
+    const { userId } = await auth()
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+    return NextResponse.next()
+  }
+
+  if (!isPublicRoute(req)) {
+    await auth.protect()
   }
 })
 
