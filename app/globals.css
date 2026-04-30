@@ -5,10 +5,8 @@
 @custom-variant dark (&:is(.dark *));
 
 /* ───────────────────────────────────────────────────────────────────────
-   Vision uses the Worldstreet token system from dashboard-revamp, but the
-   product itself is dark-first / cinematic. We still keep both palettes so
-   the app respects the user's system theme and matches the rest of the
-   ecosystem.
+   Vision: dark-first / cinematic storefront. Light + dark palettes respect
+   system preference and stay aligned with broader Worldstreet UI tokens.
    ─────────────────────────────────────────────────────────────────────── */
 :root {
     --background: oklch(1 0 0);
@@ -197,7 +195,7 @@ svg[viewBox="0 0 24 24"] > path:not(:first-child) {
   isolation: isolate;
 }
 
-/* Slim scroll, copied from dashboard for parity. */
+/* Slim scrollbars */
 .slim-scroll {
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;

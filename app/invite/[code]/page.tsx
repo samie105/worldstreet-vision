@@ -27,8 +27,8 @@ export default async function InvitePage({ params, searchParams }: InvitePagePro
           </p>
           <h1 className="mt-2 text-2xl font-semibold">Sign in to join</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            You need a Worldstreet account to accept this invite. After you sign in, you&apos;ll
-            return here automatically.
+            Sign in with your Worldstreet account to join this watch party. After you sign in, you&apos;ll
+            return here on Vision automatically.
           </p>
           <div className="mt-6 flex flex-col items-center gap-2 sm:flex-row sm:justify-center">
             <Link

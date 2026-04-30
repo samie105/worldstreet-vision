@@ -24,7 +24,7 @@ export default async function LoginPage({
             Vision
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Sign in to stream the Worldstreet original library.
+            Sign in to stream originals and exclusives on Vision.
           </p>
         </div>
         <SignIn

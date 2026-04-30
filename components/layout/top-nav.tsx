@@ -75,7 +75,7 @@ export function TopNav({ recommendations = [] }: TopNavProps) {
         <Link href="/" className="flex items-center gap-2 shrink-0">
           <Image
             src="/worldstreet-logo/WorldStreet1x.png"
-            alt="Worldstreet"
+            alt="Worldstreet Vision"
             width={28}
             height={28}
             className="size-6 object-contain"

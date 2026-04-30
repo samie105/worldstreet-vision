@@ -18,6 +18,7 @@ import {
   type DevWatchPartyStoredState,
 } from "@/lib/watch-party/dev-in-memory"
 import { normalizeInviteCode } from "@/lib/watch-party/invite-code"
+import { resolveVisionAppUrl } from "@/lib/site"
 
 import type { WatchPartySnapshot } from "@/lib/watch-party/snapshot"
 
@@ -383,7 +384,7 @@ function serialize(
 }
 
 function buildInviteUrl(inviteCode: string, token: string): string {
-  const base = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
+  const base = resolveVisionAppUrl()
   return `${base.replace(/\/$/g, "")}/invite/${inviteCode}?token=${token}`
 }
 

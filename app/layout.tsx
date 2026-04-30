@@ -14,6 +14,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { ProfilePickerGate } from "@/components/profiles/profile-picker-gate"
 import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass"
 import { listTitles } from "@/lib/catalog/queries"
+import { resolveVisionAppUrl } from "@/lib/site"
 import { cn } from "@/lib/utils"
 
 const publicSans = Public_Sans({ subsets: ["latin"], variable: "--font-sans" })
@@ -35,7 +36,7 @@ export const metadata: Metadata = {
   },
   description:
     "Cinematic streaming for Worldstreet members. Watch premium content, build your list, and host watch parties — all in one place.",
-  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? "https://vision.worldstreetgold.com"),
+  metadataBase: new URL(resolveVisionAppUrl()),
   icons: {
     icon: [
       { url: "/worldstreet-logo/WorldStreet1x.png", type: "image/png" },
@@ -91,6 +92,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <ClerkProvider
       {...(isProduction
         ? {
+            // Satellite app: primary domain is worldstreetgold.com; Vision runs on vision.*
             domain: "worldstreetgold.com",
             isSatellite: true,
             signInUrl: "https://www.worldstreetgold.com/login",

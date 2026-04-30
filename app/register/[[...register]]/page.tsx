@@ -24,7 +24,7 @@ export default async function RegisterPage({
             Vision
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Create your Worldstreet account to start streaming.
+            Create your account to start streaming on Vision.
           </p>
         </div>
         <SignUp

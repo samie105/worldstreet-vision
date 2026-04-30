@@ -16,9 +16,8 @@ const cached: MongooseCache =
 global.__visionMongooseCache = cached
 
 /**
- * Returns a cached Mongoose connection to the shared `user-account` cluster.
- * Mirrors the dashboard-revamp pattern so Vision plays nicely with other
- * Worldstreet services that share the same Mongo instance.
+ * Cached Mongoose connection to the org Mongo cluster (`user-account` DB by default).
+ * Vision uses its own collections; only the connection URI may be shared with other Worldstreet apps.
  */
 export async function connectDB(): Promise<typeof mongoose> {
   if (cached.conn && cached.conn.connection.readyState === 1) {

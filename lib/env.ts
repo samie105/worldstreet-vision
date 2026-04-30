@@ -1,3 +1,5 @@
+import { resolveVisionAppUrl } from "@/lib/site"
+
 /**
  * Centralised environment access. Throws early on the server if required
  * variables are missing so we never ship a half-configured deploy.
@@ -17,7 +19,7 @@ function optional(name: string): string | undefined {
 
 export const env = {
   isProduction: process.env.NODE_ENV === "production",
-  appUrl: optional("NEXT_PUBLIC_APP_URL") ?? "http://localhost:3000",
+  appUrl: resolveVisionAppUrl(),
   adminEmails: (optional("ADMIN_EMAILS") ?? "")
     .split(",")
     .map((s) => s.trim().toLowerCase())
