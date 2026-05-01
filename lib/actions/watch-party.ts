@@ -2,7 +2,7 @@
 
 import crypto from "node:crypto"
 
-import { requireAuthUser } from "@/lib/auth/clerk"
+import { requireRealAuthUser } from "@/lib/auth/clerk"
 import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass"
 import { connectDB } from "@/lib/db/mongodb"
 import VisionWatchParty, {
@@ -45,7 +45,7 @@ export async function createWatchParty(input: {
   startPositionSeconds?: number
 }): Promise<{ success: boolean; data?: WatchPartySnapshot; error?: string }> {
   try {
-    const user = await requireAuthUser()
+    const user = await requireRealAuthUser()
     const startPositionSeconds = Math.max(0, Math.floor(input.startPositionSeconds ?? 0))
 
     // Mock IDs ("demo-title-01") cannot be loaded from Mongo. When the dev
@@ -169,7 +169,7 @@ export async function joinWatchParty(
   token: string,
 ): Promise<{ success: boolean; data?: WatchPartySnapshot; error?: string }> {
   try {
-    const user = await requireAuthUser()
+    const user = await requireRealAuthUser()
     const code = normalizeInviteCode(inviteCode)
 
     try {
@@ -247,7 +247,7 @@ export async function getWatchPartyForParticipant(
   token?: string,
 ): Promise<{ success: boolean; data?: WatchPartySnapshot; error?: string }> {
   try {
-    const user = await requireAuthUser()
+    const user = await requireRealAuthUser()
     const code = normalizeInviteCode(inviteCode)
 
     try {
@@ -318,7 +318,7 @@ export async function endWatchParty(
   inviteCode: string,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const user = await requireAuthUser()
+    const user = await requireRealAuthUser()
     const code = normalizeInviteCode(inviteCode)
     let channel: string | null = null
 
@@ -368,7 +368,7 @@ export async function recordPlaybackState(
   state: { isPlaying: boolean; positionSeconds: number },
 ): Promise<{ success: boolean }> {
   try {
-    const user = await requireAuthUser()
+    const user = await requireRealAuthUser()
     const code = normalizeInviteCode(inviteCode)
 
     try {

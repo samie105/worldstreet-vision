@@ -1,6 +1,10 @@
 import { env } from "@/lib/env"
 import { DEV_AUTH_USER, isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass"
 import { auth, currentUser } from "@/lib/auth/runtime"
+// Direct Clerk imports for the "real" auth helpers below \u2014 these intentionally
+// skip the dev-auth bypass so multi-user features (watch parties, live chat,
+// presence) can distinguish two browser tabs as different people.
+import { auth as clerkAuthDirect, currentUser as clerkCurrentUserDirect } from "@clerk/nextjs/server"
 
 export interface VisionAuthUser {
   userId: string
@@ -54,6 +58,42 @@ export async function getAuthUser(): Promise<VisionAuthUser | null> {
  */
 export async function requireAuthUser(): Promise<VisionAuthUser> {
   const user = await getAuthUser()
+  if (!user) throw new UnauthorizedError()
+  return user
+}
+
+/**
+ * Like {@link getAuthUser} but ignores the dev-auth bypass so every browser /
+ * tab resolves to its own Clerk identity. Critical for multi-user features
+ * (watch parties, presence, comments) where two devices sharing the bypass
+ * user would collide on `userId` and incorrectly be treated as the same
+ * person \u2014 turning every guest into the host, etc.
+ */
+export async function getRealAuthUser(): Promise<VisionAuthUser | null> {
+  const { userId } = await clerkAuthDirect()
+  if (!userId) return null
+
+  const user = await clerkCurrentUserDirect()
+  if (!user) return null
+
+  const email = user.emailAddresses[0]?.emailAddress ?? ""
+  const role = resolveRole(user.publicMetadata?.role, email)
+
+  return {
+    userId: user.id,
+    email,
+    firstName: user.firstName ?? "",
+    lastName: user.lastName ?? "",
+    imageUrl: user.imageUrl ?? "",
+    role,
+  }
+}
+
+/**
+ * Multi-user variant of {@link requireAuthUser}. Always uses real Clerk auth.
+ */
+export async function requireRealAuthUser(): Promise<VisionAuthUser> {
+  const user = await getRealAuthUser()
   if (!user) throw new UnauthorizedError()
   return user
 }

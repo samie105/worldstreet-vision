@@ -5,6 +5,18 @@ import { isDevAuthBypassEnabled, DEV_AUTH_USER } from "@/lib/auth/dev-bypass"
 import { connectDB } from "@/lib/db/mongodb"
 import VisionProfile, { type IVisionProfile } from "@/models/VisionProfile"
 
+export interface VisionViewerProfileData {
+  id: string
+  name: string
+  avatarColor: string
+  avatarImageUrl: string
+  isKid: boolean
+  preferences?: {
+    autoplayPreviews?: boolean
+    captionsByDefault?: boolean
+  }
+}
+
 export interface VisionProfileData {
   _id: string
   authUserId: string
@@ -14,6 +26,7 @@ export interface VisionProfileData {
   preferences: IVisionProfile["preferences"]
   myList: string[]
   recentlyViewed: string[]
+  viewerProfiles: VisionViewerProfileData[]
   lastSeen: string
   createdAt: string
   updatedAt: string
@@ -46,6 +59,7 @@ function buildDevProfile(): VisionProfileData {
     },
     myList: [],
     recentlyViewed: [],
+    viewerProfiles: [],
     lastSeen: new Date().toISOString(),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -83,6 +97,9 @@ function toPlain(doc: IVisionProfile): VisionProfileData {
     recentlyViewed: Array.isArray(obj.recentlyViewed)
       ? (obj.recentlyViewed as string[])
       : [],
+    viewerProfiles: Array.isArray(obj.viewerProfiles)
+      ? (obj.viewerProfiles as unknown[]).map((entry) => normalizeViewerProfile(entry))
+      : [],
     lastSeen: dateString(obj.lastSeen),
     createdAt: dateString(obj.createdAt),
     updatedAt: dateString(obj.updatedAt),
@@ -93,6 +110,44 @@ function dateString(value: unknown): string {
   if (value instanceof Date) return value.toISOString()
   if (typeof value === "string") return value
   return ""
+}
+
+/**
+ * Idempotently create the Mongo profile for a real Clerk user. Used on the
+ * watch-party invite flow so first-time joiners have a display name + avatar
+ * in presence and live chat right away. Safe to call repeatedly: existing
+ * profiles are returned untouched.
+ */
+export async function ensureProfileForUser(viewer: {
+  userId: string
+  email: string
+  firstName: string
+  lastName: string
+  imageUrl: string
+}): Promise<VisionProfileData | null> {
+  if (!viewer?.userId) return null
+  try {
+    await connectDB()
+  } catch {
+    return null
+  }
+  const existing = await VisionProfile.findOne({ authUserId: viewer.userId })
+  if (existing) return toPlain(existing)
+  try {
+    const created = await VisionProfile.create({
+      authUserId: viewer.userId,
+      email: viewer.email || `${viewer.userId}@vision.local`,
+      displayName:
+        `${viewer.firstName} ${viewer.lastName}`.trim() || viewer.email || "Viewer",
+      avatarUrl: viewer.imageUrl ?? "",
+    })
+    return toPlain(created)
+  } catch (error) {
+    // Most likely a unique-key race \u2014 re-fetch and return whatever exists.
+    console.warn("[vision/ensureProfileForUser] create failed", error)
+    const fallback = await VisionProfile.findOne({ authUserId: viewer.userId })
+    return fallback ? toPlain(fallback) : null
+  }
 }
 
 export async function fetchProfile(): Promise<ProfileResult> {
@@ -279,4 +334,148 @@ function toggleListInDevCache(titleId: string): ProfileResult {
   }
   setDevProfile(next)
   return { success: true, profile: next }
+}
+
+function normalizeViewerProfile(raw: unknown): VisionViewerProfileData {
+  const r = (raw ?? {}) as Record<string, unknown>
+  return {
+    id: typeof r.id === "string" && r.id.length > 0 ? r.id : `vp-${Math.random().toString(36).slice(2, 9)}`,
+    name: typeof r.name === "string" ? r.name : "Viewer",
+    avatarColor: typeof r.avatarColor === "string" ? r.avatarColor : "#171717",
+    avatarImageUrl: typeof r.avatarImageUrl === "string" ? r.avatarImageUrl : "",
+    isKid: Boolean(r.isKid),
+    preferences:
+      r.preferences && typeof r.preferences === "object"
+        ? (r.preferences as VisionViewerProfileData["preferences"])
+        : undefined,
+  }
+}
+
+export interface ViewerProfilesResult {
+  success: boolean
+  viewerProfiles?: VisionViewerProfileData[]
+  error?: string
+}
+
+const MAX_VIEWER_PROFILES = 5
+
+/**
+ * Returns the persisted viewer profiles for the signed-in account. Falls back
+ * to an empty array if Mongo is unavailable in dev (the client provider seeds
+ * defaults locally).
+ */
+export async function getViewerProfiles(): Promise<ViewerProfilesResult> {
+  try {
+    const { userId } = await auth()
+    if (!userId) return { success: false, error: "Unauthorized" }
+
+    try {
+      await connectDB()
+    } catch {
+      if (isDevAuthBypassEnabled()) {
+        return { success: true, viewerProfiles: getDevProfile().viewerProfiles }
+      }
+      return { success: false, error: "Database unavailable" }
+    }
+
+    const existing = await VisionProfile.findOne({ authUserId: userId })
+    if (!existing) return { success: true, viewerProfiles: [] }
+    return { success: true, viewerProfiles: toPlain(existing).viewerProfiles }
+  } catch (error) {
+    console.error("[vision/getViewerProfiles] error", error)
+    return { success: false, error: "Internal server error" }
+  }
+}
+
+/**
+ * Inserts a new viewer sub-profile or updates an existing one (matched by `id`).
+ * Caps the total at `MAX_VIEWER_PROFILES`.
+ */
+export async function upsertViewerProfile(
+  input: VisionViewerProfileData,
+): Promise<ViewerProfilesResult> {
+  try {
+    const { userId } = await auth()
+    if (!userId) return { success: false, error: "Unauthorized" }
+
+    const next = normalizeViewerProfile(input)
+
+    try {
+      await connectDB()
+    } catch {
+      if (isDevAuthBypassEnabled()) {
+        const current = getDevProfile()
+        const updated = mergeViewer(current.viewerProfiles, next)
+        if (updated === null) return { success: false, error: "Profile cap reached" }
+        setDevProfile({
+          ...current,
+          viewerProfiles: updated,
+          updatedAt: new Date().toISOString(),
+        })
+        return { success: true, viewerProfiles: updated }
+      }
+      return { success: false, error: "Database unavailable" }
+    }
+
+    const profile = await VisionProfile.findOne({ authUserId: userId })
+    if (!profile) return { success: false, error: "Profile not found" }
+
+    const merged = mergeViewer(toPlain(profile).viewerProfiles, next)
+    if (merged === null) return { success: false, error: "Profile cap reached" }
+
+    profile.viewerProfiles = merged as unknown as IVisionProfile["viewerProfiles"]
+    await profile.save()
+    return { success: true, viewerProfiles: toPlain(profile).viewerProfiles }
+  } catch (error) {
+    console.error("[vision/upsertViewerProfile] error", error)
+    return { success: false, error: "Internal server error" }
+  }
+}
+
+export async function deleteViewerProfile(
+  id: string,
+): Promise<ViewerProfilesResult> {
+  try {
+    const { userId } = await auth()
+    if (!userId) return { success: false, error: "Unauthorized" }
+    if (!id) return { success: false, error: "Missing id" }
+
+    try {
+      await connectDB()
+    } catch {
+      if (isDevAuthBypassEnabled()) {
+        const current = getDevProfile()
+        const next = current.viewerProfiles.filter((p) => p.id !== id)
+        setDevProfile({ ...current, viewerProfiles: next, updatedAt: new Date().toISOString() })
+        return { success: true, viewerProfiles: next }
+      }
+      return { success: false, error: "Database unavailable" }
+    }
+
+    const profile = await VisionProfile.findOne({ authUserId: userId })
+    if (!profile) return { success: false, error: "Profile not found" }
+
+    profile.viewerProfiles = profile.viewerProfiles.filter(
+      (p) => p.id !== id,
+    ) as unknown as IVisionProfile["viewerProfiles"]
+    await profile.save()
+    return { success: true, viewerProfiles: toPlain(profile).viewerProfiles }
+  } catch (error) {
+    console.error("[vision/deleteViewerProfile] error", error)
+    return { success: false, error: "Internal server error" }
+  }
+}
+
+function mergeViewer(
+  list: VisionViewerProfileData[],
+  next: VisionViewerProfileData,
+): VisionViewerProfileData[] | null {
+  const idx = list.findIndex((p) => p.id === next.id)
+  if (idx >= 0) {
+    const copy = list.slice()
+    copy[idx] = { ...list[idx], ...next }
+    return copy
+  }
+  if (list.length >= MAX_VIEWER_PROFILES) return null
+  return [...list, next]
 }

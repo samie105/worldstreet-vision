@@ -70,7 +70,7 @@ export default function SettingsPage() {
           <Button
             size="sm"
             onClick={() =>
-              addProfile({
+              void addProfile({
                 name: `Viewer ${profiles.length + 1}`,
                 avatarColor: "#1e293b",
                 avatarImageUrl:
@@ -121,7 +121,7 @@ export default function SettingsPage() {
                   size="sm"
                   variant="ghost"
                   onClick={() =>
-                    updateViewer(p.id, {
+                    void updateViewer(p.id, {
                       name: window.prompt("Profile name", p.name) || p.name,
                     })
                   }
@@ -134,7 +134,7 @@ export default function SettingsPage() {
                     size="sm"
                     variant="destructive"
                     onClick={() => {
-                      if (window.confirm(`Delete profile "${p.name}"?`)) removeProfile(p.id)
+                      if (window.confirm(`Delete profile "${p.name}"?`)) void removeProfile(p.id)
                     }}
                   >
                     Delete

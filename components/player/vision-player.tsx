@@ -111,6 +111,7 @@ export function VisionPlayer({
   const [scrubPreview, setScrubPreview] = React.useState<number | null>(null)
   const [seeking, setSeeking] = React.useState(false)
 
+
   React.useEffect(() => {
     if (!detailsOpen) return
     setShowControls(true)
@@ -158,9 +159,18 @@ export function VisionPlayer({
     const video = internalRef.current
     if (!video || !src) return
     videoRef.current = video
-
+    // Safari (native HLS): the `autoPlay` attribute fires after `video.src` is
+    // set so playback starts on its own. We still call play() defensively in
+    // case autoPlay was blocked by browser policy (it will simply reject).
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = src
+      if (autoPlay) {
+        const onLoaded = () => {
+          void video.play().catch(() => {})
+          video.removeEventListener("loadedmetadata", onLoaded)
+        }
+        video.addEventListener("loadedmetadata", onLoaded)
+      }
       return
     }
 
@@ -171,6 +181,13 @@ export function VisionPlayer({
       hlsInstance.current = hls
       hls.loadSource(src)
       hls.attachMedia(video)
+      // The browser's native `autoPlay` attribute fires before HLS has attached
+      // a stream (the dynamic import is async). Trigger play() explicitly once
+      // the manifest is parsed so navigating from the title page starts playback
+      // immediately instead of waiting for a manual click.
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        if (autoPlay) void video.play().catch(() => {})
+      })
     })
 
     return () => {
@@ -179,7 +196,7 @@ export function VisionPlayer({
       hlsInstance.current = null
       if (videoRef.current === video) videoRef.current = null
     }
-  }, [src, videoRef])
+  }, [src, videoRef, autoPlay])
 
   React.useEffect(() => {
     const id = window.setTimeout(() => showOverlay(), 0)
@@ -253,17 +270,21 @@ export function VisionPlayer({
     onLoadedMetadata?.()
   }
 
+  const syncBufferedEnd = React.useCallback(() => {
+    const video = internalRef.current
+    if (!video || video.buffered.length === 0) return
+    try {
+      setBufferedEnd(video.buffered.end(video.buffered.length - 1))
+    } catch {
+      // ignore
+    }
+  }, [])
+
   const onTimeUpdate = () => {
     const video = internalRef.current
     if (!video) return
     setCurrentTime(video.currentTime)
-    if (video.buffered.length > 0) {
-      try {
-        setBufferedEnd(video.buffered.end(video.buffered.length - 1))
-      } catch {
-        // ignore
-      }
-    }
+    syncBufferedEnd()
   }
 
   const onScrubChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -334,10 +355,7 @@ export function VisionPlayer({
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
         onPlaying={() => setPlaying(true)}
-        onWaiting={() => {
-          const v = internalRef.current
-          if (v && !v.paused) setPlaying(true)
-        }}
+        onProgress={syncBufferedEnd}
         onTimeUpdate={onTimeUpdate}
         onLoadedMetadata={onLoadedMetadataHandler}
         onClick={() => {

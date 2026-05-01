@@ -1,5 +1,19 @@
 import mongoose, { Schema, type Document, type Model } from "mongoose"
 
+export interface IVisionViewerProfile {
+  id: string
+  name: string
+  avatarColor: string
+  avatarImageUrl: string
+  isKid: boolean
+  preferences?: {
+    autoplayPreviews?: boolean
+    captionsByDefault?: boolean
+  }
+  createdAt?: Date
+  updatedAt?: Date
+}
+
 export interface IVisionProfile extends Document {
   authUserId: string
   email: string
@@ -13,6 +27,8 @@ export interface IVisionProfile extends Document {
   }
   myList: string[]
   recentlyViewed: string[]
+  /** Netflix-style "who's watching?" sub-profiles owned by this account. */
+  viewerProfiles: IVisionViewerProfile[]
   lastSeen: Date
   createdAt: Date
   updatedAt: Date
@@ -40,6 +56,22 @@ const VisionProfileSchema = new Schema<IVisionProfile>(
     },
     myList: { type: [String], default: [] },
     recentlyViewed: { type: [String], default: [] },
+    viewerProfiles: {
+      type: [
+        {
+          id: { type: String, required: true },
+          name: { type: String, required: true },
+          avatarColor: { type: String, default: "#171717" },
+          avatarImageUrl: { type: String, default: "" },
+          isKid: { type: Boolean, default: false },
+          preferences: {
+            autoplayPreviews: { type: Boolean, default: true },
+            captionsByDefault: { type: Boolean, default: false },
+          },
+        },
+      ],
+      default: [],
+    },
     lastSeen: { type: Date, default: Date.now },
   },
   { timestamps: true, collection: "vision_profiles" },

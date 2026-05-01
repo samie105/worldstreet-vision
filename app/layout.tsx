@@ -84,7 +84,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     </html>
   )
 
-  if (isDevAuthBypassEnabled()) {
+  // ClerkProvider is mounted whenever a Clerk publishable key is configured \u2014
+  // even with the dev-auth bypass on for the app shell. This lets multi-user
+  // features (watch parties, live chat) read the *real* signed-in identity via
+  // `useUser()` so two browser tabs aren\u2019t collapsed onto the same dev user.
+  const hasClerkKey = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY)
+
+  if (isDevAuthBypassEnabled() && !hasClerkKey) {
     return tree
   }
 

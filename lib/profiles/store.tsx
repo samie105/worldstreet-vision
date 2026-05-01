@@ -3,6 +3,12 @@
 import * as React from "react"
 
 import { PROFILE_ART_IMAGES, profileArtForId } from "@/lib/profiles/avatar-art"
+import {
+  getViewerProfiles as getViewerProfilesAction,
+  upsertViewerProfile as upsertViewerProfileAction,
+  deleteViewerProfile as deleteViewerProfileAction,
+  type VisionViewerProfileData,
+} from "@/lib/actions/profile"
 
 export interface VisionViewerProfile {
   id: string
@@ -17,7 +23,7 @@ export interface VisionViewerProfile {
   }
 }
 
-const STORAGE_KEY = "vision/viewer-profiles"
+/** Active-profile selection still lives client-side (per-device choice). */
 const ACTIVE_KEY = "vision/active-profile"
 
 const DEFAULT_PROFILES: VisionViewerProfile[] = [
@@ -49,11 +55,13 @@ interface ProfilesContextValue {
   activeProfileId: string | null
   activeProfile: VisionViewerProfile | null
   hasChosen: boolean
+  /** True until the first server hydration completes. */
+  isHydrating: boolean
   selectProfile: (id: string) => void
   clearActive: () => void
-  addProfile: (input: Omit<VisionViewerProfile, "id">) => VisionViewerProfile
-  updateProfile: (id: string, updates: Partial<VisionViewerProfile>) => void
-  removeProfile: (id: string) => void
+  addProfile: (input: Omit<VisionViewerProfile, "id">) => Promise<VisionViewerProfile | null>
+  updateProfile: (id: string, updates: Partial<VisionViewerProfile>) => Promise<void>
+  removeProfile: (id: string) => Promise<void>
 }
 
 const ProfilesContext = React.createContext<ProfilesContextValue | null>(null)
@@ -68,23 +76,13 @@ export function ViewerProfilesProvider({ children }: { children: React.ReactNode
   const [profiles, setProfiles] = React.useState<VisionViewerProfile[]>(DEFAULT_PROFILES)
   const [activeProfileId, setActiveProfileId] = React.useState<string | null>(null)
   const [hydrated, setHydrated] = React.useState(false)
+  const [isHydrating, setIsHydrating] = React.useState(true)
 
+  // Step 1: read the locally-cached active profile choice synchronously after mount
+  // so the UI doesn't flash to "who's watching?" before the server responds.
   React.useEffect(() => {
-    // Defer reads via setTimeout so we don't fire setState synchronously during
-    // React's commit phase (otherwise the linter — and React — flags cascading
-    // renders).
     const id = window.setTimeout(() => {
       try {
-        const stored = window.localStorage.getItem(STORAGE_KEY)
-        if (stored) {
-          const parsed = JSON.parse(stored) as unknown
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            const normalized = parsed
-              .map(normalizeStoredProfile)
-              .filter((v): v is VisionViewerProfile => v !== null)
-            if (normalized.length > 0) setProfiles(normalized)
-          }
-        }
         const active = window.localStorage.getItem(ACTIVE_KEY)
         if (active) setActiveProfileId(active)
       } catch {
@@ -95,10 +93,39 @@ export function ViewerProfilesProvider({ children }: { children: React.ReactNode
     return () => window.clearTimeout(id)
   }, [])
 
+  // Step 2: pull the canonical list from the database. If empty (new account),
+  // seed with DEFAULT_PROFILES on the server so every device sees the same set.
   React.useEffect(() => {
-    if (!hydrated) return
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(profiles))
-  }, [profiles, hydrated])
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await getViewerProfilesAction()
+        if (cancelled) return
+        if (res.success && res.viewerProfiles) {
+          if (res.viewerProfiles.length > 0) {
+            setProfiles(res.viewerProfiles.map(fromServerViewer))
+          } else {
+            // Seed defaults to the server so new accounts get the same starter set.
+            const seeded: VisionViewerProfile[] = []
+            for (const def of DEFAULT_PROFILES) {
+              const seedRes = await upsertViewerProfileAction(toServerViewer(def))
+              if (seedRes.success && seedRes.viewerProfiles) {
+                seeded.splice(0, seeded.length, ...seedRes.viewerProfiles.map(fromServerViewer))
+              }
+            }
+            if (seeded.length > 0 && !cancelled) setProfiles(seeded)
+          }
+        }
+      } catch {
+        // Server unreachable — keep local defaults so the picker still works.
+      } finally {
+        if (!cancelled) setIsHydrating(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   React.useEffect(() => {
     if (!hydrated) return
@@ -114,24 +141,51 @@ export function ViewerProfilesProvider({ children }: { children: React.ReactNode
   const selectProfile = React.useCallback((id: string) => setActiveProfileId(id), [])
   const clearActive = React.useCallback(() => setActiveProfileId(null), [])
 
-  const addProfile = React.useCallback((input: Omit<VisionViewerProfile, "id">) => {
-    const id = `profile-${Math.random().toString(36).slice(2, 9)}`
-    const next: VisionViewerProfile = { id, ...input }
-    setProfiles((prev) => [...prev, next])
-    return next
-  }, [])
-
-  const updateProfile = React.useCallback(
-    (id: string, updates: Partial<VisionViewerProfile>) => {
-      setProfiles((prev) => prev.map((p) => (p.id === id ? { ...p, ...updates } : p)))
+  const addProfile = React.useCallback(
+    async (input: Omit<VisionViewerProfile, "id">): Promise<VisionViewerProfile | null> => {
+      const id = `profile-${Math.random().toString(36).slice(2, 9)}`
+      const next: VisionViewerProfile = { id, ...input }
+      // Optimistic update so the UI feels instant.
+      setProfiles((prev) => [...prev, next])
+      const res = await upsertViewerProfileAction(toServerViewer(next))
+      if (!res.success || !res.viewerProfiles) {
+        // Rollback on failure.
+        setProfiles((prev) => prev.filter((p) => p.id !== id))
+        return null
+      }
+      setProfiles(res.viewerProfiles.map(fromServerViewer))
+      return next
     },
     [],
   )
 
-  const removeProfile = React.useCallback((id: string) => {
+  const updateProfile = React.useCallback(
+    async (id: string, updates: Partial<VisionViewerProfile>): Promise<void> => {
+      const previous = profiles
+      setProfiles((prev) => prev.map((p) => (p.id === id ? { ...p, ...updates } : p)))
+      const merged = profiles.find((p) => p.id === id)
+      if (!merged) return
+      const res = await upsertViewerProfileAction(toServerViewer({ ...merged, ...updates }))
+      if (!res.success || !res.viewerProfiles) {
+        setProfiles(previous)
+        return
+      }
+      setProfiles(res.viewerProfiles.map(fromServerViewer))
+    },
+    [profiles],
+  )
+
+  const removeProfile = React.useCallback(async (id: string): Promise<void> => {
+    const previous = profiles
     setProfiles((prev) => prev.filter((p) => p.id !== id))
     setActiveProfileId((current) => (current === id ? null : current))
-  }, [])
+    const res = await deleteViewerProfileAction(id)
+    if (!res.success) {
+      setProfiles(previous)
+    } else if (res.viewerProfiles) {
+      setProfiles(res.viewerProfiles.map(fromServerViewer))
+    }
+  }, [profiles])
 
   const activeProfile = React.useMemo(
     () => profiles.find((p) => p.id === activeProfileId) ?? null,
@@ -144,6 +198,7 @@ export function ViewerProfilesProvider({ children }: { children: React.ReactNode
       activeProfileId,
       activeProfile,
       hasChosen: activeProfileId !== null && hydrated,
+      isHydrating,
       selectProfile,
       clearActive,
       addProfile,
@@ -155,6 +210,7 @@ export function ViewerProfilesProvider({ children }: { children: React.ReactNode
       activeProfileId,
       activeProfile,
       hydrated,
+      isHydrating,
       selectProfile,
       clearActive,
       addProfile,
@@ -164,6 +220,37 @@ export function ViewerProfilesProvider({ children }: { children: React.ReactNode
   )
 
   return <ProfilesContext.Provider value={value}>{children}</ProfilesContext.Provider>
+}
+
+function toServerViewer(p: VisionViewerProfile): VisionViewerProfileData {
+  return {
+    id: p.id,
+    name: p.name,
+    avatarColor: p.avatarColor,
+    avatarImageUrl: p.avatarImageUrl,
+    isKid: p.isKid,
+    preferences: p.preferences,
+  }
+}
+
+function fromServerViewer(p: VisionViewerProfileData): VisionViewerProfile {
+  const avatarImageUrl =
+    typeof p.avatarImageUrl === "string" && /^https?:\/\//.test(p.avatarImageUrl)
+      ? p.avatarImageUrl
+      : profileArtForId(p.id)
+  return {
+    id: p.id,
+    name: p.name,
+    avatarColor: p.avatarColor || "#171717",
+    avatarImageUrl,
+    isKid: Boolean(p.isKid),
+    preferences: p.preferences
+      ? {
+          autoplayPreviews: p.preferences.autoplayPreviews ?? true,
+          captionsByDefault: p.preferences.captionsByDefault ?? false,
+        }
+      : undefined,
+  }
 }
 
 function normalizeStoredProfile(raw: unknown): VisionViewerProfile | null {

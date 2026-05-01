@@ -45,6 +45,9 @@ export default async function TitlePage({ params }: PageProps) {
   ])
 
   let progressSeconds = 0
+  // Per-episode progress for series \u2014 lets the episode list render Continue
+  // pills, watched checks, and a Netflix-style red progress bar overlay.
+  const episodeProgress: Record<string, { positionSeconds: number; updatedAt: string }> = {}
   if (viewer && title.mainAssetId) {
     try {
       await connectDB()
@@ -56,6 +59,28 @@ export default async function TitlePage({ params }: PageProps) {
       progressSeconds = progress?.positionSeconds ?? 0
     } catch {
       progressSeconds = 0
+    }
+  }
+  if (viewer && title.kind === "series") {
+    try {
+      await connectDB()
+      const rows = await VisionWatchProgress.find({
+        authUserId: viewer.userId,
+        titleId: title._id,
+      })
+        .lean<{ assetId: string; positionSeconds: number; updatedAt: Date }[]>()
+        .exec()
+      for (const row of rows ?? []) {
+        if (!row?.assetId) continue
+        episodeProgress[row.assetId] = {
+          positionSeconds: Number(row.positionSeconds) || 0,
+          updatedAt: row.updatedAt instanceof Date
+            ? row.updatedAt.toISOString()
+            : new Date().toISOString(),
+        }
+      }
+    } catch {
+      // Non-fatal \u2014 series renders without progress overlays.
     }
   }
 
@@ -82,7 +107,7 @@ export default async function TitlePage({ params }: PageProps) {
 
       {title.kind === "series" ? (
         <div className="border-t border-border/40 bg-background px-4 py-12 md:px-12">
-          <SeriesEpisodes title={title} />
+          <SeriesEpisodes title={title} progressMap={episodeProgress} />
         </div>
       ) : null}
     </div>

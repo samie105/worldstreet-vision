@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation"
 import Link from "next/link"
 
-import { getAuthUser } from "@/lib/auth/clerk"
+import { getRealAuthUser } from "@/lib/auth/clerk"
 import { getTitleById } from "@/lib/catalog/queries"
 import { joinWatchParty } from "@/lib/actions/watch-party"
+import { ensureProfileForUser } from "@/lib/actions/profile"
 
 interface InvitePageProps {
   params: Promise<{ code: string }>
@@ -17,7 +18,7 @@ export default async function InvitePage({ params, searchParams }: InvitePagePro
   const loginHref = `/login?redirect_url=${encodeURIComponent(returnPath)}`
   const registerHref = `/register?redirect_url=${encodeURIComponent(returnPath)}`
 
-  const viewer = await getAuthUser()
+  const viewer = await getRealAuthUser()
   if (!viewer) {
     return (
       <div className="vision-stage flex min-h-dvh items-center justify-center px-4 text-center">
@@ -57,6 +58,11 @@ export default async function InvitePage({ params, searchParams }: InvitePagePro
       <InviteError message="This invite link is missing a token. Ask the host for a fresh link." />
     )
   }
+
+  // Make sure the viewer has a Vision profile before joining \u2014 watch-party
+  // presence and chat both rely on the profile\u2019s display name and avatar.
+  // First-time joiners would otherwise show up as anonymous in the panel.
+  await ensureProfileForUser(viewer)
 
   const result = await joinWatchParty(code, token)
   if (!result.success || !result.data) {

@@ -33,11 +33,11 @@ export function serializeTitle(doc: IVisionTitle): CatalogTitle {
     weight: num(obj.weight),
     createdAt: dateString(obj.createdAt),
     updatedAt: dateString(obj.updatedAt),
-    kind: seriesGenre ? "series" : "movie",
+    kind: obj.kind === "series" || seriesGenre ? "series" : "movie",
     previewClipUrl: nullable(obj.previewClipUrl),
     badge: nullable(obj.badge) as TitleBadge | null,
     logoText: String(obj.logoText ?? obj.title ?? ""),
-    seasons: undefined,
+    seasons: Array.isArray(obj.seasons) && obj.seasons.length > 0 ? (obj.seasons as CatalogTitle["seasons"]) : undefined,
   }
 }
 
@@ -61,6 +61,8 @@ export function serializeAsset(doc: IVisionAsset): CatalogAsset {
     uploadedBy: String(obj.uploadedBy ?? ""),
     createdAt: dateString(obj.createdAt),
     updatedAt: dateString(obj.updatedAt),
+    demoPlaybackUrl: nullable(obj.demoPlaybackUrl),
+    demoPosterUrl: nullable(obj.demoPosterUrl),
   }
 }
 
