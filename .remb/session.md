@@ -80,3 +80,24 @@
 - `10:09:38` saved `lib/catalog/serializers.ts`
 - `16:28:37` saved `lib/catalog/serializers.ts`
 - `16:38:08` saved `lib/catalog/serializers.ts`
+- `22:45:19` 💬 **user**: the profile selection is it in sync with the database? because i see some customly made profiles shouldn't it happen with real details and persisted s
+- `22:46:12` 🤖 **ai**: The user is asking about profile selection - they want to know if it's synced with the database properly, and they want real user details persisted per profile under one account (like Netflix's profil
+- `22:47:01` saved `lib/actions/profile.ts`
+- `22:47:07` saved `lib/actions/profile.ts`
+- `22:47:12` 🤖 **ai**: Now I understand the issue clearly. The problem is in `DEFAULT_PROFILES` in `lib/profiles/store.tsx`:
+
+```ts
+const DEFAULT_PROFILES: VisionViewerProfile[] = [
+  {
+    id: "richie",
+    name: "Richie",
+- `22:47:34` saved `lib/profiles/store.tsx`
+- `22:48:12` 🤖 **ai**: Now fix the store — remove hardcoded defaults, start with `[]`, seed one real profile on first load:
+```
+```
+Now wipe the old fake-seeded profiles from the DB so existing accounts get re-seeded with r
+- `22:49:12` 🤖 **ai**: All done. Here's what changed and why:
+
+**Root cause:** The store had hardcoded `DEFAULT_PROFILES` with "Richie", "Ava", "Kids" that got seeded to MongoDB for *every* new account — so all users ended 
+- `23:53:56` saved `lib/actions/profile.ts`
+- `23:53:56` saved `lib/profiles/store.tsx`

@@ -354,6 +354,10 @@ function normalizeViewerProfile(raw: unknown): VisionViewerProfileData {
 export interface ViewerProfilesResult {
   success: boolean
   viewerProfiles?: VisionViewerProfileData[]
+  /** Real display name from the Clerk / Mongo account (used to seed the first profile). */
+  accountName?: string
+  /** Clerk profile photo URL for the account holder. */
+  accountAvatarUrl?: string
   error?: string
 }
 
@@ -380,7 +384,13 @@ export async function getViewerProfiles(): Promise<ViewerProfilesResult> {
 
     const existing = await VisionProfile.findOne({ authUserId: userId })
     if (!existing) return { success: true, viewerProfiles: [] }
-    return { success: true, viewerProfiles: toPlain(existing).viewerProfiles }
+    const plain = toPlain(existing)
+    return {
+      success: true,
+      viewerProfiles: plain.viewerProfiles,
+      accountName: plain.displayName || undefined,
+      accountAvatarUrl: plain.avatarUrl || undefined,
+    }
   } catch (error) {
     console.error("[vision/getViewerProfiles] error", error)
     return { success: false, error: "Internal server error" }

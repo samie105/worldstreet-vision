@@ -26,30 +26,6 @@ export interface VisionViewerProfile {
 /** Active-profile selection still lives client-side (per-device choice). */
 const ACTIVE_KEY = "vision/active-profile"
 
-const DEFAULT_PROFILES: VisionViewerProfile[] = [
-  {
-    id: "richie",
-    name: "Richie",
-    avatarColor: "#1c1917",
-    avatarImageUrl: PROFILE_ART_IMAGES[0]!,
-    isKid: false,
-  },
-  {
-    id: "ava",
-    name: "Ava",
-    avatarColor: "#1c1917",
-    avatarImageUrl: PROFILE_ART_IMAGES[2]!,
-    isKid: false,
-  },
-  {
-    id: "kids",
-    name: "Kids",
-    avatarColor: "#14532d",
-    avatarImageUrl: PROFILE_ART_IMAGES[4]!,
-    isKid: true,
-  },
-]
-
 interface ProfilesContextValue {
   profiles: VisionViewerProfile[]
   activeProfileId: string | null
@@ -73,7 +49,7 @@ export function useViewerProfiles() {
 }
 
 export function ViewerProfilesProvider({ children }: { children: React.ReactNode }) {
-  const [profiles, setProfiles] = React.useState<VisionViewerProfile[]>(DEFAULT_PROFILES)
+  const [profiles, setProfiles] = React.useState<VisionViewerProfile[]>([])
   const [activeProfileId, setActiveProfileId] = React.useState<string | null>(null)
   const [hydrated, setHydrated] = React.useState(false)
   const [isHydrating, setIsHydrating] = React.useState(true)
@@ -93,8 +69,10 @@ export function ViewerProfilesProvider({ children }: { children: React.ReactNode
     return () => window.clearTimeout(id)
   }, [])
 
-  // Step 2: pull the canonical list from the database. If empty (new account),
-  // seed with DEFAULT_PROFILES on the server so every device sees the same set.
+  // Step 2: pull the canonical list from the database.
+  // For a brand-new account (0 viewer profiles), seed exactly one profile
+  // using the account holder's real name + Clerk avatar so it matches their
+  // actual identity instead of placeholder names.
   React.useEffect(() => {
     let cancelled = false
     void (async () => {
@@ -105,19 +83,31 @@ export function ViewerProfilesProvider({ children }: { children: React.ReactNode
           if (res.viewerProfiles.length > 0) {
             setProfiles(res.viewerProfiles.map(fromServerViewer))
           } else {
-            // Seed defaults to the server so new accounts get the same starter set.
-            const seeded: VisionViewerProfile[] = []
-            for (const def of DEFAULT_PROFILES) {
-              const seedRes = await upsertViewerProfileAction(toServerViewer(def))
+            // New account — seed one profile from the real account details.
+            const firstName = (res.accountName ?? "").split(" ")[0] || "My Profile"
+            const avatarImageUrl =
+              res.accountAvatarUrl && /^https?:\/\//.test(res.accountAvatarUrl)
+                ? res.accountAvatarUrl
+                : PROFILE_ART_IMAGES[0]!
+            const initial: VisionViewerProfile = {
+              id: `profile-${Math.random().toString(36).slice(2, 9)}`,
+              name: firstName,
+              avatarColor: "#171717",
+              avatarImageUrl,
+              isKid: false,
+            }
+            const seedRes = await upsertViewerProfileAction(toServerViewer(initial))
+            if (!cancelled) {
               if (seedRes.success && seedRes.viewerProfiles) {
-                seeded.splice(0, seeded.length, ...seedRes.viewerProfiles.map(fromServerViewer))
+                setProfiles(seedRes.viewerProfiles.map(fromServerViewer))
+              } else {
+                setProfiles([initial])
               }
             }
-            if (seeded.length > 0 && !cancelled) setProfiles(seeded)
           }
         }
       } catch {
-        // Server unreachable — keep local defaults so the picker still works.
+        // Server unreachable — show empty picker so user can still add profiles.
       } finally {
         if (!cancelled) setIsHydrating(false)
       }
