@@ -20,7 +20,8 @@ export async function GET(_req: Request, { params }: Params) {
   }
 
   try {
-    const bundle = signCloudflarePlayback(asset.cloudflareVideoUid, asset.signed)
+    // Match the watch-page TTL so the refreshed token outlives a full playback session.
+    const bundle = signCloudflarePlayback(asset.cloudflareVideoUid, asset.signed, 60 * 60 * 6)
     return NextResponse.json({
       assetId: asset._id,
       titleId: asset.titleId,

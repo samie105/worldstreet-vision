@@ -169,6 +169,40 @@ export async function createCloudflareStreamDirectUpload(
   }
 }
 
+/**
+ * Lightweight poll target used by the admin upload UI to wait for Cloudflare
+ * to finish transcoding (uploading → preparing → ready). Returns the live
+ * status so the slot can show "Processing…" and refresh once ready.
+ */
+export async function getAssetProcessingStatus(
+  assetId: string,
+): Promise<
+  CatalogResult<{
+    status: "uploading" | "preparing" | "ready" | "errored"
+    durationSeconds: number
+    aspectRatio: string
+    errorMessage: string
+  }>
+> {
+  try {
+    await requireAdminUser()
+    await connectDB()
+    const asset = await VisionAsset.findById(assetId)
+    if (!asset) return { success: false, error: "Asset not found" }
+    return {
+      success: true,
+      data: {
+        status: asset.status,
+        durationSeconds: asset.durationSeconds,
+        aspectRatio: asset.aspectRatio,
+        errorMessage: asset.errorMessage ?? "",
+      },
+    }
+  } catch (error) {
+    return errorResult(error)
+  }
+}
+
 export async function attachAssetToTitle(
   titleId: string,
   assetId: string,

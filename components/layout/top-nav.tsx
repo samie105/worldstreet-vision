@@ -62,15 +62,16 @@ export function TopNav({ recommendations = [] }: TopNavProps) {
   }, [])
 
   return (
-    <header
-      data-testid="top-nav"
-      className={cn(
-        "fixed inset-x-0 top-0 z-40 transition-all duration-300",
-        scrolled
-          ? "bg-background/88 backdrop-blur-xl shadow-[0_1px_0_0_rgba(255,255,255,0.04)]"
-          : "bg-gradient-to-b from-black/72 via-black/38 to-transparent",
-      )}
-    >
+    <>
+      <header
+        data-testid="top-nav"
+        className={cn(
+          "fixed inset-x-0 top-0 z-40 transition-all duration-300",
+          scrolled
+            ? "bg-background/88 backdrop-blur-xl shadow-[0_1px_0_0_rgba(255,255,255,0.04)]"
+            : "bg-gradient-to-b from-black/72 via-black/38 to-transparent",
+        )}
+      >
       <div className="mx-auto flex h-14 max-w-[1600px] items-center gap-3 px-4 md:h-16 md:px-12">
         <Link href="/" className="flex items-center gap-2 shrink-0">
           <Image
@@ -180,7 +181,10 @@ export function TopNav({ recommendations = [] }: TopNavProps) {
                 </span>
               )}
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-72 p-0">
+            <PopoverContent
+              align="end"
+              className="w-72 max-md:max-h-[min(74dvh,26rem)] max-md:overflow-y-auto max-md:p-0 p-0"
+            >
               <div className="flex items-center gap-2.5 px-3 pb-2 pt-3">
                 <span
                   className="relative flex size-9 overflow-hidden rounded-md"
@@ -205,7 +209,7 @@ export function TopNav({ recommendations = [] }: TopNavProps) {
                 </div>
               </div>
               <ProfileSwitcher />
-              <div className="border-t border-border/40 px-1 py-1">
+              <div className="px-1 py-1 pt-2">
                 <PopoverNavLink href="/my-list" icon={Bookmark01Icon} label="My List" />
                 <PopoverNavLink
                   href="/watch-together"
@@ -225,9 +229,10 @@ export function TopNav({ recommendations = [] }: TopNavProps) {
           </Popover>
         </div>
       </div>
-
+      </header>
+      {/* Outside header so fixed bottom is viewport-relative (backdrop-filter on header creates containing block). */}
       <MobileNav pathname={pathname} />
-    </header>
+    </>
   )
 }
 

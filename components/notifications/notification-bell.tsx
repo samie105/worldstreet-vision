@@ -88,9 +88,12 @@ export function NotificationBell({ recommendations, triggerClassName }: Notifica
       <PopoverContent
         align="end"
         sideOffset={10}
-        className="w-[min(96vw,420px)] overflow-hidden p-0"
+        className={cn(
+          "flex min-h-0 w-[min(96vw,420px)] flex-col overflow-hidden p-0",
+          "max-md:max-h-[min(76dvh,30rem)] md:max-h-[min(560px,calc(100vh-3rem))]",
+        )}
       >
-        <div className="flex items-center justify-between border-b border-border/50 px-4 py-2.5">
+        <div className="flex shrink-0 items-center justify-between px-4 py-2.5">
           <div>
             <p className="text-sm font-semibold">Notifications</p>
             <p className="text-[11px] text-muted-foreground">
@@ -103,7 +106,7 @@ export function NotificationBell({ recommendations, triggerClassName }: Notifica
             </Button>
           ) : null}
         </div>
-        <ul className="max-h-[420px] overflow-y-auto py-1.5 slim-scroll">
+        <ul className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain py-1.5 slim-scroll">
           <AnimatePresence initial={false}>
             {items.map((item) => (
               <motion.li
@@ -123,7 +126,7 @@ export function NotificationBell({ recommendations, triggerClassName }: Notifica
             ))}
           </AnimatePresence>
         </ul>
-        <div className="border-t border-border/50 bg-card/60 px-4 py-2 text-center">
+        <div className="shrink-0 bg-background/35 px-4 py-2 text-center dark:bg-white/[0.06]">
           <Link
             href="/settings#notifications"
             className="text-[11px] text-muted-foreground hover:text-foreground"

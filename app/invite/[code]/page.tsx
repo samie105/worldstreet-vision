@@ -66,7 +66,11 @@ export default async function InvitePage({ params, searchParams }: InvitePagePro
   const snap = result.data
   const title = await getTitleById(snap.titleId)
   const slugParam = title ? `&title=${encodeURIComponent(title.slug)}` : ""
-  redirect(`/watch/${snap.assetId}?party=${snap.inviteCode}${slugParam}`)
+  // Preserve the invite token in the URL so that re-opening the watch page
+  // (or sharing the resulting link) still auto-joins the guest if they were
+  // somehow removed from `participants`. The token is already considered a
+  // bearer credential while the party is live; expiry is enforced server-side.
+  redirect(`/watch/${snap.assetId}?party=${snap.inviteCode}&token=${encodeURIComponent(token)}${slugParam}`)
 }
 
 function InviteError({ message }: { message: string }) {

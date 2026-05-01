@@ -10,7 +10,7 @@ import VisionWatchParty, {
 } from "@/models/VisionWatchParty"
 import VisionTitle from "@/models/VisionTitle"
 import VisionAsset from "@/models/VisionAsset"
-import { watchPartyChannelName } from "@/lib/realtime/ably"
+import { getAblyRest, watchPartyChannelName } from "@/lib/realtime/ably"
 import {
   getDevWatchParty,
   hasDevWatchParty,
@@ -42,9 +42,11 @@ function buildDevSnapshot(state: DevWatchPartyStoredState): WatchPartySnapshot {
 export async function createWatchParty(input: {
   titleId: string
   assetId: string
+  startPositionSeconds?: number
 }): Promise<{ success: boolean; data?: WatchPartySnapshot; error?: string }> {
   try {
     const user = await requireAuthUser()
+    const startPositionSeconds = Math.max(0, Math.floor(input.startPositionSeconds ?? 0))
 
     // Mock IDs ("demo-title-01") cannot be loaded from Mongo. When the dev
     // auth bypass is on we still want an end-to-end flow for testing, so we
@@ -75,6 +77,12 @@ export async function createWatchParty(input: {
               joinedAt: new Date(),
             },
           ],
+          playback: {
+            isPlaying: false,
+            positionSeconds: startPositionSeconds,
+            updatedAt: new Date(),
+            version: 0,
+          },
           channel,
         })
         return { success: true, data: serialize(session, inviteToken) }
@@ -100,7 +108,7 @@ export async function createWatchParty(input: {
           ],
           playback: {
             isPlaying: false,
-            positionSeconds: 0,
+            positionSeconds: startPositionSeconds,
             updatedAt: new Date().toISOString(),
             version: 0,
           },
@@ -141,6 +149,12 @@ export async function createWatchParty(input: {
           joinedAt: new Date(),
         },
       ],
+      playback: {
+        isPlaying: false,
+        positionSeconds: startPositionSeconds,
+        updatedAt: new Date(),
+        version: 0,
+      },
       channel,
     })
 
@@ -224,6 +238,13 @@ export async function joinWatchParty(
 
 export async function getWatchPartyForParticipant(
   inviteCode: string,
+  /**
+   * Optional invite token. When provided and the caller isn't yet a participant,
+   * the call auto-joins them (mirrors the /invite/[code] flow). This lets a guest
+   * deep-link to /watch/[assetId]?party=CODE&token=TOKEN without bouncing through
+   * the invite landing page.
+   */
+  token?: string,
 ): Promise<{ success: boolean; data?: WatchPartySnapshot; error?: string }> {
   try {
     const user = await requireAuthUser()
@@ -239,8 +260,20 @@ export async function getWatchPartyForParticipant(
         if (session.expiresAt.getTime() < Date.now()) {
           return { success: false, error: "Invite has expired" }
         }
-        const ok = session.participants.some((p) => p.authUserId === user.userId)
-        if (!ok) return { success: false, error: "You are not part of this watch party." }
+        const isParticipant = session.participants.some((p) => p.authUserId === user.userId)
+        if (!isParticipant) {
+          if (!token || token !== session.inviteToken) {
+            return { success: false, error: "You are not part of this watch party." }
+          }
+          session.participants.push({
+            authUserId: user.userId,
+            displayName: `${user.firstName} ${user.lastName}`.trim() || user.email,
+            avatarUrl: user.imageUrl,
+            isHost: false,
+            joinedAt: new Date(),
+          })
+          await session.save()
+        }
         return { success: true, data: serialize(session, session.inviteToken) }
       }
     } catch {
@@ -256,8 +289,21 @@ export async function getWatchPartyForParticipant(
         if (new Date(dev.expiresAt).getTime() < Date.now()) {
           return { success: false, error: "Invite has expired" }
         }
-        const ok = dev.participants.some((p) => p.authUserId === user.userId)
-        if (!ok) return { success: false, error: "You are not part of this watch party." }
+        const isParticipant = dev.participants.some((p) => p.authUserId === user.userId)
+        if (!isParticipant) {
+          if (!token || token !== dev.inviteToken) {
+            return { success: false, error: "You are not part of this watch party." }
+          }
+          dev.participants.push({
+            authUserId: user.userId,
+            displayName: `${user.firstName} ${user.lastName}`.trim() || user.email,
+            avatarUrl: user.imageUrl,
+            isHost: false,
+            joinedAt: new Date().toISOString(),
+          })
+          dev.updatedAt = new Date().toISOString()
+          putDevWatchParty(dev)
+        }
         return { success: true, data: buildDevSnapshot(dev) }
       }
     }
@@ -274,30 +320,44 @@ export async function endWatchParty(
   try {
     const user = await requireAuthUser()
     const code = normalizeInviteCode(inviteCode)
+    let channel: string | null = null
 
     try {
       await connectDB()
       const session = await VisionWatchParty.findOne({ inviteCode: code })
       if (session) {
         if (session.hostId !== user.userId) return { success: false, error: "Forbidden" }
-        session.status = "ended"
-        await session.save()
-        return { success: true }
+        if (session.status !== "ended") {
+          session.status = "ended"
+          await session.save()
+        }
+        channel = session.channel
       }
     } catch {
       // try in-memory
     }
 
-    if (hasDevWatchParty(code) && isDevAuthBypassEnabled()) {
+    if (!channel && hasDevWatchParty(code) && isDevAuthBypassEnabled()) {
       const dev = getDevWatchParty(code)!
       if (dev.hostId !== user.userId) return { success: false, error: "Forbidden" }
       dev.status = "ended"
       dev.updatedAt = new Date().toISOString()
       putDevWatchParty(dev)
-      return { success: true }
+      channel = dev.channel
     }
 
-    return { success: false, error: "Not found" }
+    if (!channel) return { success: false, error: "Not found" }
+
+    // Notify everyone connected so guests don't sit on a dead session.
+    try {
+      await getAblyRest()
+        .channels.get(channel)
+        .publish("session", { status: "ended", endedAt: new Date().toISOString() })
+    } catch (err) {
+      console.warn("[vision/watch-party] failed to broadcast end", err)
+    }
+
+    return { success: true }
   } catch (error) {
     return errorResult(error)
   }

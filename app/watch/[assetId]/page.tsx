@@ -13,7 +13,7 @@ import { withPartyQueryOnWatchHref } from "@/lib/watch-party/watch-url"
 
 interface WatchPageProps {
   params: Promise<{ assetId: string }>
-  searchParams: Promise<{ t?: string; party?: string }>
+  searchParams: Promise<{ t?: string; party?: string; token?: string }>
 }
 
 export const dynamic = "force-dynamic"
@@ -30,6 +30,9 @@ export default async function WatchPage({ params, searchParams }: WatchPageProps
 
   const title = asset.titleId ? await getTitleById(asset.titleId) : null
 
+  // Use a 6-hour TTL so the signed manifest URL stays valid for the full
+  // length of any movie/episode and any watch-party session (max 6h).
+  const PLAYBACK_TOKEN_TTL_SECONDS = 60 * 60 * 6
   const bundle = asset.demoPlaybackUrl
     ? {
         videoUid: asset.cloudflareVideoUid ?? asset._id,
@@ -40,21 +43,24 @@ export default async function WatchPage({ params, searchParams }: WatchPageProps
         posterUrl: asset.demoPosterUrl ?? "",
         iframeUrl: "",
       }
-    : signCloudflarePlayback(asset.cloudflareVideoUid!, asset.signed)
+    : signCloudflarePlayback(asset.cloudflareVideoUid!, asset.signed, PLAYBACK_TOKEN_TTL_SECONDS)
   let resumeAt = 0
   let partyInitialIsPlaying: boolean | null = null
   let partyPlaybackResolved = false
 
   let partyGuestHint = false
+  let partyHostHint = false
 
   const partyCode = query.party
   if (partyCode && partyCode !== "new") {
-    const party = await getWatchPartyForParticipant(partyCode)
+    const party = await getWatchPartyForParticipant(partyCode, query.token)
     if (party.success && party.data) {
       resumeAt = party.data.playback.positionSeconds
       partyInitialIsPlaying = party.data.playback.isPlaying
       partyPlaybackResolved = true
-      partyGuestHint = party.data.hostId !== viewer.userId
+      const isHost = party.data.hostId === viewer.userId
+      partyGuestHint = !isHost
+      partyHostHint = isHost
     }
   }
 
@@ -118,8 +124,10 @@ export default async function WatchPage({ params, searchParams }: WatchPageProps
       playback={bundle}
       resumeAt={resumeAt}
       partyMode={query.party ?? null}
+      partyToken={query.token ?? null}
       partyInitialIsPlaying={partyInitialIsPlaying}
       partyGuestHint={partyGuestHint}
+      partyHostHint={partyHostHint}
       episodeLabel={episodeLabel}
       nextUp={nextUp}
       relatedTitles={relatedTitles}

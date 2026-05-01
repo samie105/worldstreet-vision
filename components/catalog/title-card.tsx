@@ -2,18 +2,7 @@
 
 import * as React from "react"
 import Image from "next/image"
-import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { motion } from "motion/react"
-import { HugeiconsIcon } from "@hugeicons/react"
-import {
-  PlayIcon,
-  Add01Icon,
-  ThumbsUpIcon,
-  ArrowDown01Icon,
-  VolumeMute01Icon,
-  VolumeHighIcon,
-} from "@hugeicons/core-free-icons"
 
 import { cn, formatDuration } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -22,7 +11,7 @@ import type { CatalogTitle, TitleBadge } from "@/lib/catalog/types"
 
 interface TitleCardProps {
   title: CatalogTitle
-  /** Show hover preview and quick actions. Defaults to true. */
+  /** Hover-to-play preview clip. Defaults to true. */
   expandable?: boolean
   /** Optional progress overlay (0-1) used for Continue Watching. */
   progress?: number
@@ -51,12 +40,6 @@ const BADGE_TONE: Record<TitleBadge, string> = {
   exclusive: "bg-primary/95 text-primary-foreground",
 }
 
-const hoverTransition = {
-  type: "tween" as const,
-  duration: 0.45,
-  ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
-}
-
 export function TitleCard({
   title,
   expandable = true,
@@ -65,22 +48,18 @@ export function TitleCard({
   rank,
 }: TitleCardProps) {
   const router = useRouter()
-  const [hovered, setHovered] = React.useState(false)
   const [previewReady, setPreviewReady] = React.useState(false)
-  const [muted, setMuted] = React.useState(true)
   const hoverTimer = React.useRef<number | null>(null)
 
   const onEnter = () => {
     if (!expandable) return
     if (hoverTimer.current) window.clearTimeout(hoverTimer.current)
     hoverTimer.current = window.setTimeout(() => setPreviewReady(true), HOVER_DELAY_MS)
-    setHovered(true)
   }
 
   const onLeave = () => {
     if (hoverTimer.current) window.clearTimeout(hoverTimer.current)
     setPreviewReady(false)
-    setHovered(false)
   }
 
   React.useEffect(
@@ -90,15 +69,14 @@ export function TitleCard({
     [],
   )
 
-  const playHref = `/watch/${title.mainAssetId ?? title.trailerAssetId ?? ""}`
   const detailHref = `/title/${title.slug}`
 
   const goToDetail = () => router.push(detailHref)
 
   return (
-    <motion.div
-      onHoverStart={onEnter}
-      onHoverEnd={onLeave}
+    <div
+      onMouseEnter={onEnter}
+      onMouseLeave={onLeave}
       onFocus={onEnter}
       onBlur={onLeave}
       onClick={goToDetail}
@@ -107,8 +85,6 @@ export function TitleCard({
       onKeyDown={(e) => {
         if (e.key === "Enter") goToDetail()
       }}
-      whileHover={expandable ? { scale: 1.085, zIndex: 40 } : undefined}
-      transition={hoverTransition}
       className={cn(
         "group relative aspect-video w-full shrink-0 cursor-pointer overflow-visible rounded-xl bg-card",
         "ring-1 ring-border/25 shadow-[0_10px_28px_-10px_rgba(0,0,0,0.42)]",
@@ -130,20 +106,22 @@ export function TitleCard({
           </span>
         ) : null}
 
-        {title.backdropUrl ? (
-          <Image
-            src={title.backdropUrl}
-            alt=""
-            fill
-            sizes="(max-width: 640px) 75vw, (max-width: 1024px) 46vw, (max-width: 1536px) 32vw, 28vw"
-            className="object-cover transition-[transform,filter] duration-[480ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:brightness-[1.04]"
-            unoptimized
-          />
-        ) : (
-          <div className="absolute inset-0 flex items-center justify-center bg-muted text-xs text-muted-foreground">
-            No artwork
-          </div>
-        )}
+        <div className="absolute inset-0 overflow-hidden rounded-[inherit]">
+          {title.backdropUrl ? (
+            <Image
+              src={title.backdropUrl}
+              alt=""
+              fill
+              sizes="(max-width: 640px) 75vw, (max-width: 1024px) 46vw, (max-width: 1536px) 32vw, 28vw"
+              className="object-cover transition-[transform,filter] duration-[480ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:brightness-[1.04] group-hover:scale-[1.08]"
+              unoptimized
+            />
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center bg-muted text-xs text-muted-foreground">
+              No artwork
+            </div>
+          )}
+        </div>
 
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/88 via-black/35 to-black/0 transition-opacity duration-[480ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:from-black/80 group-hover:via-black/28" />
 
@@ -198,80 +176,9 @@ export function TitleCard({
         ) : null}
 
         {expandable && previewReady && title.previewClipUrl ? (
-          <PreviewClip
-            src={title.previewClipUrl}
-            poster={title.backdropUrl}
-            active
-            muted={muted}
-          />
-        ) : null}
-
-        {expandable ? (
-          <motion.div
-            className="absolute inset-x-0 bottom-0 z-[4] flex justify-center gap-1 bg-gradient-to-t from-black/75 via-black/40 to-transparent px-2 pb-2.5 pt-8"
-            initial={false}
-            animate={{
-              opacity: hovered ? 1 : 0,
-              y: hovered ? 0 : 10,
-            }}
-            transition={hoverTransition}
-            style={{ pointerEvents: hovered ? "auto" : "none" }}
-          >
-            <Link
-              href={playHref}
-              onClick={(e) => e.stopPropagation()}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white text-black hover:bg-white/90"
-              aria-label={`Play ${title.title}`}
-            >
-              <HugeiconsIcon icon={PlayIcon} strokeWidth={2.5} className="size-3.5" />
-            </Link>
-            <button
-              type="button"
-              onClick={(e) => e.stopPropagation()}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/35 bg-black/35 text-white backdrop-blur-sm hover:bg-black/45"
-              aria-label="Add to my list"
-            >
-              <HugeiconsIcon icon={Add01Icon} strokeWidth={2} className="size-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={(e) => e.stopPropagation()}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/35 bg-black/35 text-white backdrop-blur-sm hover:bg-black/45"
-              aria-label="Like"
-            >
-              <HugeiconsIcon icon={ThumbsUpIcon} strokeWidth={2} className="size-3.5" />
-            </button>
-            {previewReady && title.previewClipUrl ? (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setMuted((m) => !m)
-                }}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/35 bg-black/35 text-white backdrop-blur-sm hover:bg-black/45"
-                aria-label={muted ? "Unmute preview" : "Mute preview"}
-              >
-                <HugeiconsIcon
-                  icon={muted ? VolumeMute01Icon : VolumeHighIcon}
-                  strokeWidth={2}
-                  className="size-3.5"
-                />
-              </button>
-            ) : null}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                goToDetail()
-              }}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/35 bg-black/35 text-white backdrop-blur-sm hover:bg-black/45"
-              aria-label="More info"
-            >
-              <HugeiconsIcon icon={ArrowDown01Icon} strokeWidth={2} className="size-3.5" />
-            </button>
-          </motion.div>
+          <PreviewClip src={title.previewClipUrl} poster={title.backdropUrl} active muted />
         ) : null}
       </div>
-    </motion.div>
+    </div>
   )
 }

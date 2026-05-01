@@ -68,7 +68,9 @@ export default async function TitlePage({ params }: PageProps) {
   const watchTogetherHref = main ? `/watch/${main._id}?party=new` : null
 
   return (
-    <div className="flex flex-col">
+    <div
+      className={`flex flex-col${title.kind === "movie" ? " max-md:h-[calc(100dvh-3.5rem-5rem)] max-md:min-h-0" : ""}`}
+    >
       <TitleDetailHero
         title={title}
         related={related}

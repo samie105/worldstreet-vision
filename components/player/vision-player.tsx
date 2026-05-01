@@ -11,15 +11,14 @@ import {
   VolumeHighIcon,
   VolumeMute01Icon,
   VolumeLowIcon,
-  ArrowExpand02Icon,
+  MaximizeScreenIcon,
+  MinimizeScreenIcon,
   InformationCircleIcon,
   Cancel01Icon,
   Settings01Icon,
-  SubtitleIcon,
-  Forward01Icon,
-  Backward01Icon,
+  GoBackward10SecIcon,
+  GoForward10SecIcon,
   CheckmarkCircle02Icon,
-  Tv01Icon,
 } from "@hugeicons/core-free-icons"
 
 import { cn, formatDuration, clamp } from "@/lib/utils"
@@ -64,13 +63,16 @@ interface VisionPlayerProps {
   onBack?: () => void
   /**
    * `follow-host`: play/pause/seek/keyboard/skip are disabled — sync comes from Ably.
-   * Player still allows volume, captions, fullscreen.
+   * Player still allows volume and fullscreen.
    */
   transportMode?: "full" | "follow-host"
 }
 
 const SEEK_STEP_SECONDS = 10
 const HIDE_OVERLAY_MS = 2_800
+/** Softer strokes for overlay icons (Hugeicons defaults feel heavy at 2–2.5). */
+const ICON_STROKE = 1.4
+const ICON_STROKE_PRIMARY = 1.55
 
 export function VisionPlayer({
   src,
@@ -94,7 +96,8 @@ export function VisionPlayer({
   const hlsInstance = React.useRef<{ destroy: () => void } | null>(null)
   const hideTimerRef = React.useRef<number | null>(null)
 
-  const [playing, setPlaying] = React.useState(autoPlay)
+  /** Drive from real media `play` / `pause` events — never from `autoPlay` alone (blocked autoplay desyncs UI). */
+  const [playing, setPlaying] = React.useState(false)
   const [muted, setMuted] = React.useState(false)
   const [volume, setVolume] = React.useState(1)
   const [duration, setDuration] = React.useState(0)
@@ -107,7 +110,6 @@ export function VisionPlayer({
   const [playbackRate, setPlaybackRate] = React.useState(1)
   const [scrubPreview, setScrubPreview] = React.useState<number | null>(null)
   const [seeking, setSeeking] = React.useState(false)
-  const [captions, setCaptions] = React.useState<"off" | "english">("off")
 
   React.useEffect(() => {
     if (!detailsOpen) return
@@ -118,14 +120,19 @@ export function VisionPlayer({
     }
   }, [detailsOpen])
 
+  React.useEffect(() => {
+    setPlaying(false)
+  }, [src])
+
   const togglePlay = React.useCallback(() => {
     if (followHost) return
     const video = internalRef.current
     if (!video) return
     if (video.paused) {
-      void video.play().catch(() => {})
+      void video.play().catch(() => setPlaying(false))
     } else {
       video.pause()
+      setPlaying(false)
     }
   }, [followHost])
 
@@ -242,6 +249,7 @@ export function VisionPlayer({
     const video = internalRef.current
     if (!video) return
     setDuration(video.duration || 0)
+    setPlaying(!video.paused)
     onLoadedMetadata?.()
   }
 
@@ -325,6 +333,11 @@ export function VisionPlayer({
         className="h-full w-full bg-black object-contain"
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
+        onPlaying={() => setPlaying(true)}
+        onWaiting={() => {
+          const v = internalRef.current
+          if (v && !v.paused) setPlaying(true)
+        }}
         onTimeUpdate={onTimeUpdate}
         onLoadedMetadata={onLoadedMetadataHandler}
         onClick={() => {
@@ -335,26 +348,16 @@ export function VisionPlayer({
           togglePlay()
         }}
         onDoubleClick={toggleFullscreen}
-      >
-        {captions === "english" ? (
-          <track
-            label="English"
-            kind="captions"
-            srcLang="en"
-            // Captions stub for testing
-            src="data:text/vtt;base64,V0VCVlRUCg=="
-            default
-          />
-        ) : null}
-      </video>
+      />
 
-      {!playing && currentTime > 0 ? (
+      {/* Single play affordance: hide when controls are open or the center transport row would show through the gradient. */}
+      {!playing && currentTime > 0 && !showControls ? (
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/30"
+          className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center bg-black/30"
         >
           <span className="rounded-full bg-white/90 p-5 shadow-xl">
-            <HugeiconsIcon icon={PlayIcon} strokeWidth={2.5} className="size-8 text-black" />
+            <HugeiconsIcon icon={PlayIcon} strokeWidth={ICON_STROKE_PRIMARY} className="size-8 text-black/90" />
           </span>
         </div>
       ) : null}
@@ -392,7 +395,7 @@ export function VisionPlayer({
 
             <div className="flex flex-1 items-center justify-center gap-6">
               <CenterButton
-                aria-label="Back 10 seconds"
+                aria-label="Skip back 10 seconds"
                 disabled={followHost}
                 onClick={(event) => {
                   event.stopPropagation()
@@ -403,7 +406,11 @@ export function VisionPlayer({
                 }}
                 size="md"
               >
-                <HugeiconsIcon icon={Backward01Icon} strokeWidth={2.5} />
+                <HugeiconsIcon
+                  icon={GoBackward10SecIcon}
+                  strokeWidth={ICON_STROKE}
+                  className="size-8 text-white/[0.88]"
+                />
               </CenterButton>
               <CenterButton
                 aria-label={playing ? "Pause" : "Play"}
@@ -415,10 +422,10 @@ export function VisionPlayer({
                 size="lg"
                 primary
               >
-                <HugeiconsIcon icon={playing ? PauseIcon : PlayIcon} strokeWidth={2.5} />
+                <HugeiconsIcon icon={playing ? PauseIcon : PlayIcon} strokeWidth={ICON_STROKE_PRIMARY} className="text-black/90" />
               </CenterButton>
               <CenterButton
-                aria-label="Forward 10 seconds"
+                aria-label="Skip forward 10 seconds"
                 disabled={followHost}
                 onClick={(event) => {
                   event.stopPropagation()
@@ -431,7 +438,11 @@ export function VisionPlayer({
                 }}
                 size="md"
               >
-                <HugeiconsIcon icon={Forward01Icon} strokeWidth={2.5} />
+                <HugeiconsIcon
+                  icon={GoForward10SecIcon}
+                  strokeWidth={ICON_STROKE}
+                  className="size-8 text-white/[0.88]"
+                />
               </CenterButton>
             </div>
 
@@ -482,34 +493,15 @@ export function VisionPlayer({
                   >
                     <HugeiconsIcon
                       icon={muted || volume === 0 ? VolumeMute01Icon : volume < 0.5 ? VolumeLowIcon : VolumeHighIcon}
-                      strokeWidth={2}
+                      strokeWidth={ICON_STROKE}
+                      className="text-white/88"
                     />
                   </CenterButton>
-                  <input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    value={muted ? 0 : volume}
+                  <VolumeSlider
+                    volume={volume}
+                    muted={muted}
                     onChange={onVolumeChange}
-                    onClick={(event) => event.stopPropagation()}
-                    className="hidden h-1 w-24 cursor-pointer appearance-none rounded-full bg-white/30 accent-white md:block"
-                    aria-label="Volume"
                   />
-
-                  <button
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      setCaptions((c) => (c === "off" ? "english" : "off"))
-                    }}
-                    aria-label={captions === "off" ? "Turn captions on" : "Turn captions off"}
-                    className={cn(
-                      "inline-flex h-9 w-9 items-center justify-center rounded-full text-white hover:bg-white/15",
-                      captions === "english" && "bg-white/15",
-                    )}
-                  >
-                    <HugeiconsIcon icon={SubtitleIcon} strokeWidth={2} />
-                  </button>
 
                   <SettingsMenu
                     open={showSettings}
@@ -520,25 +512,17 @@ export function VisionPlayer({
                   />
 
                   <button
-                    aria-label="Cast"
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full text-white hover:bg-white/15"
-                    onClick={(event) => event.stopPropagation()}
-                  >
-                    <HugeiconsIcon icon={Tv01Icon} strokeWidth={2} />
-                  </button>
-
-                  <button
                     aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
                     onClick={(event) => {
                       event.stopPropagation()
                       toggleFullscreen()
                     }}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full text-white hover:bg-white/15"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full text-white/90 hover:bg-white/15"
                     data-testid="player-fullscreen"
                   >
                     <HugeiconsIcon
-                      icon={isFullscreen ? Cancel01Icon : ArrowExpand02Icon}
-                      strokeWidth={2}
+                      icon={isFullscreen ? MinimizeScreenIcon : MaximizeScreenIcon}
+                      strokeWidth={ICON_STROKE}
                     />
                   </button>
                 </div>
@@ -586,7 +570,7 @@ function TopBar({
             aria-label="Back"
             data-testid="player-back"
           >
-            <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
+            <HugeiconsIcon icon={Cancel01Icon} strokeWidth={ICON_STROKE} />
           </button>
         ) : null}
         {onOpenDetails ? (
@@ -600,7 +584,7 @@ function TopBar({
             aria-label="Show overview and cast"
             data-testid="player-open-details"
           >
-            <HugeiconsIcon icon={InformationCircleIcon} strokeWidth={2} className="size-4" />
+            <HugeiconsIcon icon={InformationCircleIcon} strokeWidth={ICON_STROKE} className="size-4" />
             <span className="hidden sm:inline">Overview & cast</span>
           </button>
         ) : null}
@@ -738,7 +722,7 @@ function PlayerDetailsPanel({
                 className="inline-flex h-9 w-9 items-center justify-center rounded-full text-white hover:bg-white/10"
                 aria-label="Close"
               >
-                <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} className="size-4" />
+                <HugeiconsIcon icon={Cancel01Icon} strokeWidth={ICON_STROKE} className="size-4" />
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 py-4 pb-8">
@@ -835,6 +819,46 @@ function CenterButton({
   )
 }
 
+function VolumeSlider({
+  volume,
+  muted,
+  onChange,
+}: {
+  volume: number
+  muted: boolean
+  onChange: (event: React.ChangeEvent<HTMLInputElement>) => void
+}) {
+  const level = muted ? 0 : volume
+  const fillPercent = clamp(level * 100, 0, 100)
+
+  return (
+    <div className="relative hidden h-3 w-24 shrink-0 md:block">
+      <div className="pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-white/22" />
+      <div
+        className="pointer-events-none absolute left-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-primary"
+        style={{ width: `${fillPercent}%` }}
+      />
+      <input
+        type="range"
+        min={0}
+        max={1}
+        step={0.01}
+        value={muted ? 0 : volume}
+        onChange={onChange}
+        onClick={(event) => event.stopPropagation()}
+        aria-label="Volume"
+        className={cn(
+          "absolute inset-0 cursor-pointer appearance-none bg-transparent accent-primary outline-none",
+          "[&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-transparent",
+          "[&::-webkit-slider-thumb]:mt-[-3px] [&::-webkit-slider-thumb]:size-2.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:ring-2 [&::-webkit-slider-thumb]:ring-white/65",
+          "[&::-moz-range-track]:h-1 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-transparent",
+          "[&::-moz-range-thumb]:size-2.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-primary [&::-moz-range-thumb]:ring-2 [&::-moz-range-thumb]:ring-white/65",
+        )}
+      />
+    </div>
+  )
+}
+
 function ScrubBar({
   duration,
   value,
@@ -912,7 +936,7 @@ function SettingsMenu({
           open && "bg-white/15",
         )}
       >
-        <HugeiconsIcon icon={Settings01Icon} strokeWidth={2} />
+        <HugeiconsIcon icon={Settings01Icon} strokeWidth={ICON_STROKE} />
       </button>
       <AnimatePresence>
         {open ? (
@@ -942,7 +966,7 @@ function SettingsMenu({
                   >
                     <span>{rate}×</span>
                     {rate === playbackRate ? (
-                      <HugeiconsIcon icon={CheckmarkCircle02Icon} strokeWidth={2} className="size-3.5" />
+                      <HugeiconsIcon icon={CheckmarkCircle02Icon} strokeWidth={ICON_STROKE} className="size-3.5" />
                     ) : null}
                   </button>
                 </li>
@@ -960,7 +984,7 @@ function SettingsMenu({
                   >
                     <span>{label}</span>
                     {label === "Auto" ? (
-                      <HugeiconsIcon icon={CheckmarkCircle02Icon} strokeWidth={2} className="size-3.5" />
+                      <HugeiconsIcon icon={CheckmarkCircle02Icon} strokeWidth={ICON_STROKE} className="size-3.5" />
                     ) : null}
                   </button>
                 </li>

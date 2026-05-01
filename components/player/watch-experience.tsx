@@ -37,12 +37,20 @@ interface WatchExperienceProps {
   resumeAt: number
   partyMode: string | null
   /**
+   * Invite token (from `/invite/[code]?token=...` flow) preserved in the URL.
+   * Lets a guest deep-link to the watch screen without re-bouncing through
+   * the invite landing page.
+   */
+  partyToken?: string | null
+  /**
    * Server-hydrated from the watch party when `?party=` is set (not `new`).
    * Drives initial play/pause so guests match the host before Ably connects.
    */
   partyInitialIsPlaying?: boolean | null
-  /** True when server knows this viewer is not the party host (instant guest transport lock). */
+  /** True when server confirmed this viewer is NOT the party host. */
   partyGuestHint?: boolean
+  /** True when server confirmed this viewer IS the party host. */
+  partyHostHint?: boolean
   /** Series episode label like "S1 · E2 — Opening Bell". */
   episodeLabel?: string | null
   nextUp?: NextUpInfo | null
@@ -58,8 +66,10 @@ export function WatchExperience({
   playback,
   resumeAt,
   partyMode,
+  partyToken = null,
   partyInitialIsPlaying = null,
   partyGuestHint = false,
+  partyHostHint = false,
   episodeLabel,
   nextUp,
   relatedTitles = [],
@@ -71,19 +81,34 @@ export function WatchExperience({
   const [startedAt] = React.useState(() => resumeAt || 0)
   const [activePartySession, setActivePartySession] = React.useState<WatchPartySnapshot | null>(null)
   const [leaveWatchOpen, setLeaveWatchOpen] = React.useState(false)
+  const [partyEnded, setPartyEnded] = React.useState(false)
 
   const onPartySessionChange = React.useCallback((next: WatchPartySnapshot | null) => {
     setActivePartySession(next)
   }, [])
 
-  const transportMode =
-    user &&
-    partyMode &&
-    partyMode !== "new" &&
-    (partyGuestHint ||
-      (!!activePartySession && user.userId !== activePartySession.hostId))
-      ? "follow-host"
-      : "full"
+  const onPartyEnded = React.useCallback(() => {
+    setPartyEnded(true)
+  }, [])
+
+  /**
+   * Transport mode resolution priority:
+   *   1. No party param → "full" (solo viewing).
+   *   2. partyMode === "new" → "full" (host bootstrap).
+   *   3. Server-confirmed host → "full".
+   *   4. Server-confirmed guest OR live session says we’re a guest → "follow-host".
+   *   5. Unknown / still hydrating → default to "follow-host" so a guest can’t
+   *      seek/scrub during the brief loading window.
+   */
+  const transportMode = (() => {
+    if (!user || !partyMode || partyMode === "new") return "full" as const
+    if (partyHostHint) return "full" as const
+    if (activePartySession) {
+      return activePartySession.hostId === user.userId ? ("full" as const) : ("follow-host" as const)
+    }
+    // partyMode is a real code but server hasn’t confirmed our role yet.
+    return partyGuestHint ? ("follow-host" as const) : ("follow-host" as const)
+  })()
 
   const shouldAutoPlay = partyInitialIsPlaying === null ? true : partyInitialIsPlaying
 
@@ -194,7 +219,7 @@ export function WatchExperience({
           introEndsAtSeconds={45}
           nextUp={nextUpEffective}
           detailFields={detailFields ?? undefined}
-          relatedTitles={relatedTitles}
+          relatedTitles={title?.kind === "series" ? relatedTitles : []}
           partyInviteCode={partyCodeForNext}
           rightActions={
             <Button
@@ -223,12 +248,36 @@ export function WatchExperience({
             asset={asset}
             title={title}
             initialMode={partyMode}
+            initialToken={partyToken}
             playerRef={playerRef}
             startedAt={startedAt}
             onSessionChange={onPartySessionChange}
+            onPartyEnded={onPartyEnded}
           />
         </SheetContent>
       </Sheet>
+
+      {partyEnded ? (
+        <Dialog open={partyEnded} onOpenChange={(open) => !open && setPartyEnded(false)}>
+          <DialogContent showCloseButton={false} className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Watch party ended</DialogTitle>
+              <DialogDescription>
+                The host ended this session. You can keep watching on your own
+                or head back to browse.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button type="button" variant="outline" onClick={() => setPartyEnded(false)}>
+                Keep watching
+              </Button>
+              <Button type="button" variant="default" onClick={() => router.push("/browse")}>
+                Browse
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      ) : null}
     </div>
   )
 }

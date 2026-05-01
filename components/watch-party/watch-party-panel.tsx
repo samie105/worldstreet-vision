@@ -35,10 +35,14 @@ interface WatchPartyPanelProps {
   asset: CatalogAsset
   title: CatalogTitle | null
   initialMode: string | null
+  /** Invite token preserved in the watch URL — lets a guest auto-join. */
+  initialToken?: string | null
   playerRef: React.MutableRefObject<HTMLVideoElement | null>
   startedAt: number
   /** Fired when session is created, loaded, or cleared (e.g. after ending a party). */
   onSessionChange?: (session: WatchPartySnapshot | null) => void
+  /** Fired when an Ably `session.status === "ended"` event is received. */
+  onPartyEnded?: () => void
 }
 
 interface PlaybackMessage {
@@ -49,6 +53,19 @@ interface PlaybackMessage {
   version: number
   fromHost: boolean
 }
+
+interface SessionMessage {
+  status: "ended"
+  endedAt?: string
+}
+
+type RealtimeStatus =
+  | "idle"
+  | "connecting"
+  | "connected"
+  | "disconnected"
+  | "suspended"
+  | "failed"
 
 interface PresenceMember {
   authUserId: string
@@ -99,9 +116,11 @@ export function WatchPartyPanel({
   asset,
   title,
   initialMode,
+  initialToken = null,
   playerRef,
   startedAt,
   onSessionChange,
+  onPartyEnded,
 }: WatchPartyPanelProps) {
   const router = useRouter()
   const pathname = usePathname()
@@ -117,8 +136,11 @@ export function WatchPartyPanel({
   const [endingParty, setEndingParty] = React.useState(false)
   const [endPartyOpen, setEndPartyOpen] = React.useState(false)
   const [members, setMembers] = React.useState<PresenceMember[]>([])
+  const [realtimeStatus, setRealtimeStatus] = React.useState<RealtimeStatus>("idle")
   const channelRef = React.useRef<RealtimeChannel | null>(null)
   const realtimeRef = React.useRef<RealtimeClient | null>(null)
+  const onPartyEndedRef = React.useRef(onPartyEnded)
+  onPartyEndedRef.current = onPartyEnded
   const isHost = !!session && !!user && session.hostId === user.userId
   const lastBroadcastRef = React.useRef<number>(0)
   const lastDbPersistRef = React.useRef<number>(0)
@@ -166,7 +188,13 @@ export function WatchPartyPanel({
     setPending(true)
     setError(null)
     try {
-      const result = await createWatchParty({ titleId: title._id, assetId: asset._id })
+      const result = await createWatchParty({
+        titleId: title._id,
+        assetId: asset._id,
+        // Seed the synced position with where the host is currently watching so
+        // late joiners (and the server snapshot) don’t fall back to 0:00.
+        startPositionSeconds: Math.max(0, Math.floor(startedAt)),
+      })
       if (!result.success || !result.data) {
         throw new Error(result.error ?? "Failed to start party")
       }
@@ -176,7 +204,7 @@ export function WatchPartyPanel({
     } finally {
       setPending(false)
     }
-  }, [asset._id, title, user])
+  }, [asset._id, title, user, startedAt])
 
   React.useEffect(() => {
     onSessionChange?.(session)
@@ -191,7 +219,7 @@ export function WatchPartyPanel({
     let cancelled = false
     setHydrateError(null)
     setPending(true)
-    void getWatchPartyForParticipant(initialMode).then((res) => {
+    void getWatchPartyForParticipant(initialMode, initialToken ?? undefined).then((res) => {
       if (cancelled) return
       setPending(false)
       if (res.success && res.data) {
@@ -203,7 +231,7 @@ export function WatchPartyPanel({
     return () => {
       cancelled = true
     }
-  }, [initialMode, session])
+  }, [initialMode, initialToken, session])
 
   React.useEffect(() => {
     if (initialMode === "new" && !session) {
@@ -238,6 +266,7 @@ export function WatchPartyPanel({
 
   React.useEffect(() => {
     if (!session || !user) return
+    setRealtimeStatus("connecting")
     const realtime = new Ably.Realtime({
       authCallback: async (_params, callback) => {
         try {
@@ -256,6 +285,14 @@ export function WatchPartyPanel({
       clientId: user.userId,
     })
     realtimeRef.current = realtime
+
+    // Surface connection state in the UI so silent disconnects are visible.
+    const onConnectionStateChange = (change: Ably.ConnectionStateChange) => {
+      const state = change.current as RealtimeStatus
+      setRealtimeStatus(state)
+    }
+    realtime.connection.on(onConnectionStateChange)
+
     const channel = realtime.channels.get(session.channel)
     channelRef.current = channel
 
@@ -291,7 +328,22 @@ export function WatchPartyPanel({
       }
     }
 
+    /**
+     * Server broadcasts `{ status: "ended" }` when the host ends the party.
+     * Tear down playback sync and let the parent show a banner so guests
+     * aren’t left wondering why the connection went quiet.
+     */
+    const onSessionMessage = (message: Message) => {
+      const data = message.data as SessionMessage | undefined
+      if (!data || data.status !== "ended") return
+      const node = playerRef.current as HTMLVideoElement | null
+      if (node && !node.paused) node.pause()
+      setSession(null)
+      onPartyEndedRef.current?.()
+    }
+
     channel.subscribe("playback", onMessage)
+    channel.subscribe("session", onSessionMessage)
     void channel.presence.enter(
       buildPresenceMember(user, session, profileRef.current),
     )
@@ -306,9 +358,11 @@ export function WatchPartyPanel({
     return () => {
       channel.unsubscribe()
       void channel.presence.leave().catch(() => {})
+      realtime.connection.off(onConnectionStateChange)
       realtime.close()
       channelRef.current = null
       realtimeRef.current = null
+      setRealtimeStatus("idle")
     }
   }, [session, user, isHost, playerRef])
 
@@ -445,7 +499,10 @@ export function WatchPartyPanel({
       </Dialog>
 
       <div className="rounded-xl border border-border/30 bg-black/30 p-4">
-        <p className="text-xs uppercase tracking-wider text-muted-foreground">Invite link</p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs uppercase tracking-wider text-muted-foreground">Invite link</p>
+          <ConnectionPill status={realtimeStatus} />
+        </div>
         <div className="mt-1.5 flex items-center gap-2">
           <code className="line-clamp-1 flex-1 truncate rounded-md bg-black/40 px-2 py-1.5 text-xs text-white/90">
             {session.inviteUrl}
@@ -538,5 +595,32 @@ export function WatchPartyPanel({
         </p>
       ) : null}
     </div>
+  )
+}
+
+function ConnectionPill({ status }: { status: RealtimeStatus }) {
+  const config: Record<
+    RealtimeStatus,
+    { label: string; dot: string; text: string }
+  > = {
+    idle: { label: "Idle", dot: "bg-muted-foreground/40", text: "text-muted-foreground" },
+    connecting: { label: "Connecting", dot: "bg-amber-400 animate-pulse", text: "text-amber-200" },
+    connected: { label: "Live", dot: "bg-emerald-400", text: "text-emerald-200" },
+    disconnected: { label: "Reconnecting", dot: "bg-amber-400 animate-pulse", text: "text-amber-200" },
+    suspended: { label: "Offline", dot: "bg-orange-400", text: "text-orange-200" },
+    failed: { label: "Disconnected", dot: "bg-destructive", text: "text-destructive" },
+  }
+  const view = config[status]
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider",
+        view.text,
+      )}
+      aria-live="polite"
+    >
+      <span className={cn("inline-block size-1.5 rounded-full", view.dot)} />
+      {view.label}
+    </span>
   )
 }
