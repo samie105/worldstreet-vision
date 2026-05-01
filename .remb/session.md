@@ -78,3 +78,5 @@
 - `05:24:48` saved `migrations/001-seed-catalog.mjs`
 - `05:25:37` saved `lib/catalog/serializers.ts`
 - `10:09:38` saved `lib/catalog/serializers.ts`
+- `16:28:37` saved `lib/catalog/serializers.ts`
+- `16:38:08` saved `lib/catalog/serializers.ts`

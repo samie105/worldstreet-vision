@@ -61,8 +61,8 @@ export function serializeAsset(doc: IVisionAsset): CatalogAsset {
     uploadedBy: String(obj.uploadedBy ?? ""),
     createdAt: dateString(obj.createdAt),
     updatedAt: dateString(obj.updatedAt),
-    demoPlaybackUrl: nullable(obj.demoPlaybackUrl),
-    demoPosterUrl: nullable(obj.demoPosterUrl),
+    demoPlaybackUrl: obj.demoPlaybackUrl != null ? String(obj.demoPlaybackUrl) : undefined,
+    demoPosterUrl: obj.demoPosterUrl != null ? String(obj.demoPosterUrl) : undefined,
   }
 }
 
