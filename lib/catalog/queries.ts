@@ -1,11 +1,16 @@
 import "server-only"
 
 import { connectDB } from "@/lib/db/mongodb"
+import {
+  getActiveViewerProfile,
+  watchProgressProfileFilter,
+} from "@/lib/profiles/active-profile"
 import VisionAsset from "@/models/VisionAsset"
 import VisionRail from "@/models/VisionRail"
 import VisionTitle from "@/models/VisionTitle"
 import VisionWatchProgress from "@/models/VisionWatchProgress"
 
+import { isKidSafeTitle, KID_SAFE_RATING_VALUES } from "./maturity"
 import {
   serializeAsset,
   serializeRail,
@@ -37,10 +42,11 @@ interface ListTitlesOptions {
 }
 
 export async function listTitles(options: ListTitlesOptions = {}): Promise<CatalogTitle[]> {
+  const kidProfile = await isKidProfileActive()
   try {
     await connectDB()
   } catch {
-    return filterMockTitles(options)
+    return applyKidFilter(filterMockTitles(options), kidProfile)
   }
   const filter: Record<string, unknown> = {}
   if (options.status) {
@@ -57,13 +63,16 @@ export async function listTitles(options: ListTitlesOptions = {}): Promise<Catal
       filter.$text = { $search: safe }
     }
   }
+  if (kidProfile) filter.maturityRating = { $in: KID_SAFE_RATING_VALUES }
 
   const docs = await VisionTitle.find(filter)
     .sort({ weight: -1, publishAt: -1, createdAt: -1 })
     .skip(options.skip ?? 0)
     .limit(Math.min(options.limit ?? 60, 120))
   const titles = docs.map(serializeTitle)
-  return titles.length > 0 ? titles : filterMockTitles(options)
+  // The post-filter also covers the mock fallback and any rows that slipped
+  // past the `$in` (e.g. non-lowercase legacy ratings) — fail closed.
+  return applyKidFilter(titles.length > 0 ? titles : filterMockTitles(options), kidProfile)
 }
 
 /** Titles that share genres with the current title, excluding it, for detail rails. */
@@ -152,15 +161,22 @@ export async function listActiveRails(): Promise<CatalogRail[]> {
 }
 
 export async function buildHomeRails(authUserId: string | null): Promise<RailWithTitles[]> {
+  const kidProfile = await isKidProfileActive()
   try {
     await connectDB()
   } catch {
-    return buildMockRails()
+    return applyKidFilterToRails(buildMockRails(), kidProfile)
   }
   const rails = await listActiveRails()
-  if (rails.every((rail) => rail._id.startsWith("demo-rail-"))) return buildMockRails()
+  if (rails.every((rail) => rail._id.startsWith("demo-rail-"))) {
+    return applyKidFilterToRails(buildMockRails(), kidProfile)
+  }
 
-  return Promise.all(
+  const kidMaturityFilter = kidProfile
+    ? { maturityRating: { $in: KID_SAFE_RATING_VALUES } }
+    : {}
+
+  const built = await Promise.all(
     rails.map(async (rail) => {
       let titles: CatalogTitle[] = []
       switch (rail.kind) {
@@ -169,6 +185,7 @@ export async function buildHomeRails(authUserId: string | null): Promise<RailWit
             const docs = await VisionTitle.find({
               slug: { $in: rail.manualSlugs },
               status: "published",
+              ...kidMaturityFilter,
             })
             const ordered: CatalogTitle[] = []
             const map = new Map(docs.map((d) => [d.slug, serializeTitle(d)]))
@@ -185,7 +202,7 @@ export async function buildHomeRails(authUserId: string | null): Promise<RailWit
           break
         case "newest": {
           await connectDB()
-          const docs = await VisionTitle.find({ status: "published" })
+          const docs = await VisionTitle.find({ status: "published", ...kidMaturityFilter })
             .sort({ publishAt: -1, createdAt: -1 })
             .limit(18)
           titles = docs.map(serializeTitle)
@@ -206,26 +223,44 @@ export async function buildHomeRails(authUserId: string | null): Promise<RailWit
       return { rail, titles }
     }),
   )
+  return applyKidFilterToRails(built, kidProfile)
 }
 
 export async function listContinueWatching(
   authUserId: string,
   limit = 12,
 ): Promise<ContinueWatchingItem[]> {
+  const activeProfile = await getActiveViewerProfile()
+  const kidProfile = activeProfile?.isKid ?? false
   try {
     await connectDB()
   } catch {
-    return mockContinueWatching(limit)
+    return applyKidFilterToContinue(mockContinueWatching(limit), kidProfile)
   }
-  const progress = await VisionWatchProgress.find({
+  const rows = await VisionWatchProgress.find({
     authUserId,
     completed: false,
     positionSeconds: { $gt: 5 },
+    // Per-profile history: only this profile's rows (+ legacy rows on the
+    // primary profile).
+    ...watchProgressProfileFilter(activeProfile),
   })
     .sort({ lastWatchedAt: -1 })
     .limit(limit)
 
-  if (progress.length === 0) return mockContinueWatching(limit)
+  // The primary profile can match both its own row and a legacy row for the
+  // same title/asset — keep only the most recent of each pair.
+  const seen = new Set<string>()
+  const progress = rows.filter((p) => {
+    const key = `${p.titleId}:${p.assetId}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+
+  if (progress.length === 0) {
+    return applyKidFilterToContinue(mockContinueWatching(limit), kidProfile)
+  }
 
   const titleIds = [...new Set(progress.map((p) => p.titleId))]
   const assetIds = [...new Set(progress.map((p) => p.assetId))]
@@ -259,7 +294,7 @@ export async function listContinueWatching(
     }
   }
 
-  return progress
+  const items = progress
     .map((p) => {
       const title = titleMap.get(p.titleId)
       if (!title) return null
@@ -273,6 +308,32 @@ export async function listContinueWatching(
       } satisfies ContinueWatchingItem
     })
     .filter((value): value is ContinueWatchingItem => value !== null)
+  return applyKidFilterToContinue(items, kidProfile)
+}
+
+/** True when the device's active viewer profile is a kids profile. */
+async function isKidProfileActive(): Promise<boolean> {
+  const profile = await getActiveViewerProfile()
+  return profile?.isKid ?? false
+}
+
+function applyKidFilter(titles: CatalogTitle[], kidProfile: boolean): CatalogTitle[] {
+  return kidProfile ? titles.filter((title) => isKidSafeTitle(title)) : titles
+}
+
+function applyKidFilterToRails(
+  rails: RailWithTitles[],
+  kidProfile: boolean,
+): RailWithTitles[] {
+  if (!kidProfile) return rails
+  return rails.map(({ rail, titles }) => ({ rail, titles: applyKidFilter(titles, true) }))
+}
+
+function applyKidFilterToContinue(
+  items: ContinueWatchingItem[],
+  kidProfile: boolean,
+): ContinueWatchingItem[] {
+  return kidProfile ? items.filter((item) => isKidSafeTitle(item.title)) : items
 }
 
 function mockContinueWatching(limit: number): ContinueWatchingItem[] {

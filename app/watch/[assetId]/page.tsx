@@ -1,8 +1,13 @@
-import { notFound } from "next/navigation"
+import { notFound, redirect } from "next/navigation"
 
 import { getAuthUser } from "@/lib/auth/clerk"
 import { getWatchPartyForParticipant } from "@/lib/actions/watch-party"
 import { getAssetById, getTitleById, listRelatedTitles } from "@/lib/catalog/queries"
+import { isKidSafeTitle } from "@/lib/catalog/maturity"
+import {
+  getActiveViewerProfile,
+  watchProgressProfileFilter,
+} from "@/lib/profiles/active-profile"
 import type { CatalogTitle } from "@/lib/catalog/types"
 import { getMockNextEpisode, getMockTitleById } from "@/lib/catalog/mock-data"
 import { signCloudflarePlayback } from "@/lib/video/cloudflare-stream"
@@ -29,6 +34,11 @@ export default async function WatchPage({ params, searchParams }: WatchPageProps
   }
 
   const title = asset.titleId ? await getTitleById(asset.titleId) : null
+
+  // Kids enforcement (deep-link protection): a kids profile may only play
+  // kid-safe titles — unknown/unrated content is refused too (fail closed).
+  const activeProfile = await getActiveViewerProfile()
+  if (activeProfile?.isKid && !isKidSafeTitle(title)) redirect("/")
 
   // Use a 6-hour TTL so the signed manifest URL stays valid for the full
   // length of any movie/episode and any watch-party session (max 6h).
@@ -76,7 +86,10 @@ export default async function WatchPage({ params, searchParams }: WatchPageProps
         authUserId: viewer.userId,
         titleId: title._id,
         assetId: asset._id,
-      })
+        // Resume from the active profile's own history (legacy rows count
+        // for the primary profile only).
+        ...watchProgressProfileFilter(activeProfile),
+      }).sort({ lastWatchedAt: -1 })
       resumeAt = progress?.positionSeconds ?? 0
     } catch {
       resumeAt = 0

@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server"
 
 import { getAuthUser } from "@/lib/auth/clerk"
-import { getAssetById } from "@/lib/catalog/queries"
+import { getAssetById, getTitleById } from "@/lib/catalog/queries"
+import { isKidSafeTitle } from "@/lib/catalog/maturity"
+import { getActiveViewerProfile } from "@/lib/profiles/active-profile"
 import { signCloudflarePlayback } from "@/lib/video/cloudflare-stream"
 
 interface Params {
@@ -15,6 +17,20 @@ export async function GET(_req: Request, { params }: Params) {
   const { assetId } = await params
   const asset = await getAssetById(assetId)
   if (!asset) return NextResponse.json({ error: "Asset not found" }, { status: 404 })
+
+  // Kids enforcement (deep-link protection): refuse to mint playback for
+  // non-kid-safe (or unrated/unknown) titles while a kids profile is active.
+  const activeProfile = await getActiveViewerProfile()
+  if (activeProfile?.isKid) {
+    const title = asset.titleId ? await getTitleById(asset.titleId) : null
+    if (!isKidSafeTitle(title)) {
+      return NextResponse.json(
+        { error: "This title is not available on a kids profile" },
+        { status: 403 },
+      )
+    }
+  }
+
   if (asset.status !== "ready" || !asset.cloudflareVideoUid) {
     return NextResponse.json({ error: "Asset not ready" }, { status: 409 })
   }

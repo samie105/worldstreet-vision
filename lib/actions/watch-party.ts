@@ -2,6 +2,8 @@
 
 import crypto from "node:crypto"
 
+import { headers } from "next/headers"
+
 import { requireRealAuthUser } from "@/lib/auth/clerk"
 import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass"
 import { connectDB } from "@/lib/db/mongodb"
@@ -24,10 +26,41 @@ import type { WatchPartySnapshot } from "@/lib/watch-party/snapshot"
 
 const isObjectId = (value: string) => /^[a-f0-9]{24}$/i.test(value)
 
-function buildDevSnapshot(state: DevWatchPartyStoredState): WatchPartySnapshot {
+/**
+ * Origin the current request actually hit, from the proxy-forwarded headers.
+ * Guarantees invite links point at the host the creator is using (custom
+ * domain, preview deploy, LAN dev server) instead of a misconfigured
+ * NEXT_PUBLIC_APP_URL. Falls back to resolveVisionAppUrl() outside request
+ * scope or when no host header is present.
+ */
+async function resolveRequestOrigin(): Promise<string> {
+  try {
+    const headerStore = await headers()
+    const host =
+      headerStore.get("x-forwarded-host")?.trim() || headerStore.get("host")?.trim()
+    if (host) {
+      const forwardedProto = headerStore
+        .get("x-forwarded-proto")
+        ?.split(",")[0]
+        ?.trim()
+      const proto =
+        forwardedProto ||
+        (host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https")
+      return `${proto}://${host}`
+    }
+  } catch {
+    // headers() is unavailable outside a request scope.
+  }
+  return resolveVisionAppUrl()
+}
+
+function buildDevSnapshot(
+  state: DevWatchPartyStoredState,
+  origin: string,
+): WatchPartySnapshot {
   return {
     inviteCode: state.inviteCode,
-    inviteUrl: buildInviteUrl(state.inviteCode, state.inviteToken),
+    inviteUrl: buildInviteUrl(state.inviteCode, state.inviteToken, origin),
     channel: state.channel,
     hostId: state.hostId,
     titleId: state.titleId,
@@ -46,6 +79,7 @@ export async function createWatchParty(input: {
 }): Promise<{ success: boolean; data?: WatchPartySnapshot; error?: string }> {
   try {
     const user = await requireRealAuthUser()
+    const origin = await resolveRequestOrigin()
     const startPositionSeconds = Math.max(0, Math.floor(input.startPositionSeconds ?? 0))
 
     // Mock IDs ("demo-title-01") cannot be loaded from Mongo. When the dev
@@ -85,7 +119,7 @@ export async function createWatchParty(input: {
           },
           channel,
         })
-        return { success: true, data: serialize(session, inviteToken) }
+        return { success: true, data: serialize(session, inviteToken, origin) }
       } catch (err) {
         console.warn("[vision/watch-party] Mongo unavailable for mock party; using in-memory", err)
         const state: DevWatchPartyStoredState = {
@@ -116,7 +150,7 @@ export async function createWatchParty(input: {
           updatedAt: new Date().toISOString(),
         }
         putDevWatchParty(state)
-        return { success: true, data: buildDevSnapshot(state) }
+        return { success: true, data: buildDevSnapshot(state, origin) }
       }
     }
 
@@ -158,7 +192,7 @@ export async function createWatchParty(input: {
       channel,
     })
 
-    return { success: true, data: serialize(session, inviteToken) }
+    return { success: true, data: serialize(session, inviteToken, origin) }
   } catch (error) {
     return errorResult(error)
   }
@@ -170,6 +204,7 @@ export async function joinWatchParty(
 ): Promise<{ success: boolean; data?: WatchPartySnapshot; error?: string }> {
   try {
     const user = await requireRealAuthUser()
+    const origin = await resolveRequestOrigin()
     const code = normalizeInviteCode(inviteCode)
 
     try {
@@ -196,7 +231,7 @@ export async function joinWatchParty(
           })
           await session.save()
         }
-        return { success: true, data: serialize(session, token) }
+        return { success: true, data: serialize(session, token, origin) }
       }
     } catch {
       // Mongo unavailable — try in-memory below
@@ -226,7 +261,7 @@ export async function joinWatchParty(
           dev.updatedAt = new Date().toISOString()
           putDevWatchParty(dev)
         }
-        return { success: true, data: buildDevSnapshot(dev) }
+        return { success: true, data: buildDevSnapshot(dev, origin) }
       }
     }
 
@@ -248,6 +283,7 @@ export async function getWatchPartyForParticipant(
 ): Promise<{ success: boolean; data?: WatchPartySnapshot; error?: string }> {
   try {
     const user = await requireRealAuthUser()
+    const origin = await resolveRequestOrigin()
     const code = normalizeInviteCode(inviteCode)
 
     try {
@@ -274,7 +310,7 @@ export async function getWatchPartyForParticipant(
           })
           await session.save()
         }
-        return { success: true, data: serialize(session, session.inviteToken) }
+        return { success: true, data: serialize(session, session.inviteToken, origin) }
       }
     } catch {
       // continue to in-memory
@@ -304,7 +340,7 @@ export async function getWatchPartyForParticipant(
           dev.updatedAt = new Date().toISOString()
           putDevWatchParty(dev)
         }
-        return { success: true, data: buildDevSnapshot(dev) }
+        return { success: true, data: buildDevSnapshot(dev, origin) }
       }
     }
 
@@ -416,8 +452,9 @@ export async function recordPlaybackState(
 function serialize(
   doc: typeof VisionWatchParty.prototype,
   token: string,
+  origin: string,
 ): WatchPartySnapshot {
-  const inviteUrl = buildInviteUrl(doc.inviteCode, token)
+  const inviteUrl = buildInviteUrl(doc.inviteCode, token, origin)
   return {
     inviteCode: doc.inviteCode,
     inviteUrl,
@@ -443,8 +480,8 @@ function serialize(
   }
 }
 
-function buildInviteUrl(inviteCode: string, token: string): string {
-  const base = resolveVisionAppUrl()
+function buildInviteUrl(inviteCode: string, token: string, origin: string): string {
+  const base = origin || resolveVisionAppUrl()
   return `${base.replace(/\/$/g, "")}/invite/${inviteCode}?token=${token}`
 }
 

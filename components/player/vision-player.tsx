@@ -24,6 +24,15 @@ import {
 import { cn, formatDuration, clamp } from "@/lib/utils"
 import type { CatalogTitle } from "@/lib/catalog/types"
 import { withPartyQueryOnWatchHref } from "@/lib/watch-party/watch-url"
+import {
+  addFullscreenChangeListener,
+  enterVideoNativeFullscreen,
+  exitDocumentFullscreen,
+  exitVideoNativeFullscreen,
+  getFullscreenElement,
+  requestElementFullscreen,
+  warnFullscreenUnavailable,
+} from "./fullscreen"
 
 interface VisionPlayerProps {
   src: string
@@ -95,6 +104,8 @@ export function VisionPlayer({
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const hlsInstance = React.useRef<{ destroy: () => void } | null>(null)
   const hideTimerRef = React.useRef<number | null>(null)
+  /** True while the iPhone-only native <video> fullscreen player is open. */
+  const nativeVideoFullscreenRef = React.useRef(false)
 
   /** Drive from real media `play` / `pause` events — never from `autoPlay` alone (blocked autoplay desyncs UI). */
   const [playing, setPlaying] = React.useState(false)
@@ -139,12 +150,21 @@ export function VisionPlayer({
 
   const toggleFullscreen = React.useCallback(() => {
     const node = containerRef.current
-    if (!node) return
-    if (document.fullscreenElement) {
-      void document.exitFullscreen?.().catch(() => {})
-    } else {
-      void node.requestFullscreen?.().catch(() => {})
+    const video = internalRef.current
+
+    if (getFullscreenElement()) {
+      if (!exitDocumentFullscreen()) warnFullscreenUnavailable()
+      return
     }
+    // iOS iPhone native player fullscreen doesn't surface via fullscreenElement.
+    if (nativeVideoFullscreenRef.current && video) {
+      exitVideoNativeFullscreen(video)
+      return
+    }
+    if (node && requestElementFullscreen(node)) return
+    // iPhone fallback: no element fullscreen API — use the native video player.
+    if (video && enterVideoNativeFullscreen(video)) return
+    warnFullscreenUnavailable()
   }, [])
 
   const showOverlay = React.useCallback(() => {
@@ -207,11 +227,31 @@ export function VisionPlayer({
   }, [showOverlay])
 
   React.useEffect(() => {
-    function onFullscreenChange() {
-      setIsFullscreen(Boolean(document.fullscreenElement))
+    // Standard + prefixed fullscreenchange events (Safari/Firefox/legacy Edge).
+    return addFullscreenChangeListener(() => {
+      setIsFullscreen(Boolean(getFullscreenElement()))
+    })
+  }, [])
+
+  React.useEffect(() => {
+    // iOS iPhone native <video> fullscreen doesn't fire fullscreenchange —
+    // sync state from the webkit begin/end events on the video element itself.
+    const video = internalRef.current
+    if (!video) return
+    const onBegin = () => {
+      nativeVideoFullscreenRef.current = true
+      setIsFullscreen(true)
     }
-    document.addEventListener("fullscreenchange", onFullscreenChange)
-    return () => document.removeEventListener("fullscreenchange", onFullscreenChange)
+    const onEnd = () => {
+      nativeVideoFullscreenRef.current = false
+      setIsFullscreen(false)
+    }
+    video.addEventListener("webkitbeginfullscreen", onBegin)
+    video.addEventListener("webkitendfullscreen", onEnd)
+    return () => {
+      video.removeEventListener("webkitbeginfullscreen", onBegin)
+      video.removeEventListener("webkitendfullscreen", onEnd)
+    }
   }, [])
 
   React.useEffect(() => {

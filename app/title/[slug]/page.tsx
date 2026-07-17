@@ -1,8 +1,13 @@
-import { notFound } from "next/navigation"
+import { notFound, redirect } from "next/navigation"
 
 import { getAuthUser } from "@/lib/auth/clerk"
 import { getAssetsForTitle, getTitleBySlug, listRelatedTitles } from "@/lib/catalog/queries"
+import { isKidSafeTitle } from "@/lib/catalog/maturity"
 import { getMockTitleBySlug } from "@/lib/catalog/mock-data"
+import {
+  getActiveViewerProfile,
+  watchProgressProfileFilter,
+} from "@/lib/profiles/active-profile"
 import { TitleDetailHero } from "@/components/catalog/title-detail-hero"
 import { SeriesEpisodes } from "@/components/catalog/series-episodes"
 import { connectDB } from "@/lib/db/mongodb"
@@ -38,11 +43,16 @@ export default async function TitlePage({ params }: PageProps) {
   const title =
     baseTitle.kind === "series" && mockTitle && isDemoCatalogTitle ? mockTitle : baseTitle
 
-  const [assets, viewer, related] = await Promise.all([
+  const [assets, viewer, related, activeProfile] = await Promise.all([
     getAssetsForTitle(title._id),
     getAuthUser(),
     listRelatedTitles(title.slug, title.genres, 18),
+    getActiveViewerProfile(),
   ])
+
+  // Kids enforcement (deep-link protection): kid profiles can't open detail
+  // pages for non-kid-safe titles.
+  if (activeProfile?.isKid && !isKidSafeTitle(title)) redirect("/")
 
   let progressSeconds = 0
   // Per-episode progress for series \u2014 lets the episode list render Continue
@@ -55,7 +65,8 @@ export default async function TitlePage({ params }: PageProps) {
         authUserId: viewer.userId,
         titleId: title._id,
         assetId: title.mainAssetId,
-      })
+        ...watchProgressProfileFilter(activeProfile),
+      }).sort({ lastWatchedAt: -1 })
       progressSeconds = progress?.positionSeconds ?? 0
     } catch {
       progressSeconds = 0
@@ -67,11 +78,15 @@ export default async function TitlePage({ params }: PageProps) {
       const rows = await VisionWatchProgress.find({
         authUserId: viewer.userId,
         titleId: title._id,
+        ...watchProgressProfileFilter(activeProfile),
       })
+        .sort({ lastWatchedAt: -1 })
         .lean<{ assetId: string; positionSeconds: number; updatedAt: Date }[]>()
         .exec()
       for (const row of rows ?? []) {
-        if (!row?.assetId) continue
+        // Newest-first sort: keep the most recent row when a profile row and
+        // a legacy row both exist for the same episode.
+        if (!row?.assetId || episodeProgress[row.assetId]) continue
         episodeProgress[row.assetId] = {
           positionSeconds: Number(row.positionSeconds) || 0,
           updatedAt: row.updatedAt instanceof Date

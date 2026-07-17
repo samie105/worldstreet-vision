@@ -3,6 +3,7 @@
 import { auth } from "@/lib/auth/runtime"
 import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass"
 import { connectDB } from "@/lib/db/mongodb"
+import { getActiveViewerProfile } from "@/lib/profiles/active-profile"
 import VisionProfile from "@/models/VisionProfile"
 import VisionWatchProgress from "@/models/VisionWatchProgress"
 
@@ -33,19 +34,47 @@ export async function saveWatchProgress(
       input.durationSeconds > 0 &&
       input.positionSeconds / input.durationSeconds >= 0.92
 
+    // Scope progress to the active viewer profile. `""` (no resolvable
+    // profile) keeps legacy account-level semantics — those rows surface on
+    // the primary profile only. The primary profile also ADOPTS matching
+    // legacy rows (profileId missing/"") in place instead of creating a
+    // duplicate, so stale legacy rows can't resurface in Continue Watching.
+    const activeProfile = await getActiveViewerProfile()
+    const profileId = activeProfile?.id ?? ""
+    const ownsLegacyRows = !activeProfile || activeProfile.isPrimary
+    const profileFilter = ownsLegacyRows
+      ? { profileId: { $in: [profileId, null, ""] } }
+      : { profileId }
+
     await VisionWatchProgress.findOneAndUpdate(
-      { authUserId: userId, titleId: input.titleId, assetId: input.assetId },
+      {
+        authUserId: userId,
+        titleId: input.titleId,
+        assetId: input.assetId,
+        ...profileFilter,
+      },
       {
         $set: {
+          profileId,
           positionSeconds: Math.max(0, Math.floor(input.positionSeconds)),
           durationSeconds: Math.max(0, Math.floor(input.durationSeconds)),
           completed,
           lastWatchedAt: new Date(),
         },
       },
-      { upsert: true, returnDocument: "after", setDefaultsOnInsert: true },
+      {
+        upsert: true,
+        returnDocument: "after",
+        setDefaultsOnInsert: true,
+        // Deterministically update the freshest row if a stamped row and a
+        // legacy row ever coexist for the same title/asset.
+        sort: { lastWatchedAt: -1 },
+      },
     )
 
+    // NOTE: `recentlyViewed` intentionally stays account-level — it is a flat
+    // string[] of titleIds on the account document, so stamping per-profile
+    // ids would change its shape for every consumer.
     await VisionProfile.findOneAndUpdate(
       { authUserId: userId },
       {
