@@ -31,23 +31,43 @@ const isWebhookRoute = createRouteMatcher([
  *
  * For APIs, `protect()` would 404 unauthenticated requests; use `userId` + 401 instead.
  */
-const clerkMw = clerkMiddleware(async (auth, req) => {
-  if (isWebhookRoute(req)) {
-    return NextResponse.next()
-  }
+const isLocalDev = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.startsWith("pk_test_")
 
-  if (isProtectedApi(req)) {
-    const { userId } = await auth()
-    if (!userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+const clerkMw = clerkMiddleware(
+  async (auth, req) => {
+    if (isWebhookRoute(req)) {
+      return NextResponse.next()
     }
-    return NextResponse.next()
-  }
 
-  if (!isPublicRoute(req)) {
-    await auth.protect()
-  }
-})
+    if (isProtectedApi(req)) {
+      const { userId } = await auth()
+      if (!userId) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      }
+      return NextResponse.next()
+    }
+
+    if (!isPublicRoute(req)) {
+      await auth.protect()
+    }
+  },
+  // Satellite config lives in CODE, not env, mirroring the academy web app.
+  // Relying on NEXT_PUBLIC_CLERK_IS_SATELLITE/_DOMAIN broke prod: with the env
+  // vars unset, `auth.protect()` cannot build the primary-domain sign-in
+  // redirect and rewrites signed-out visitors to a 404 (x-clerk-auth-reason:
+  // protect-rewrite). Local dev (pk_test_) keeps the in-app sign-in routes.
+  isLocalDev
+    ? {
+        signInUrl: "/login",
+        signUpUrl: "/register",
+      }
+    : {
+        domain: "worldstreetgold.com",
+        isSatellite: true,
+        signInUrl: "https://www.worldstreetgold.com/login",
+        signUpUrl: "https://www.worldstreetgold.com/register",
+      },
+)
 
 export default function middleware(req: NextRequest, event: Parameters<typeof clerkMw>[1]) {
   if (isDevAuthBypassEnabled()) {
