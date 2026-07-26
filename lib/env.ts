@@ -48,4 +48,13 @@ export const env = {
     },
     clientName: optional("NEXT_PUBLIC_ABLY_CLIENT_NAME") ?? "worldstreet-vision",
   },
+  tmdb: {
+    get apiKey() {
+      return required("TMDB_API_KEY")
+    },
+    /** Enrichment is optional — features degrade gracefully when the key is absent. */
+    get isConfigured() {
+      return Boolean(optional("TMDB_API_KEY"))
+    },
+  },
 }

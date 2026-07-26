@@ -48,6 +48,8 @@ export interface CatalogTitle {
   weight: number
   createdAt: string
   updatedAt: string
+  /** TMDB movie id when the title has been enriched. Optional — mock data omits it. */
+  tmdbId?: number | null
   /** Movie or multi-episode series. Defaults to "movie". */
   kind: TitleKind
   /** Short URL (HLS) used for hover-to-preview cards. */

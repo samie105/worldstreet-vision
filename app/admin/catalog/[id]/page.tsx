@@ -5,6 +5,7 @@ import VisionTitle from "@/models/VisionTitle"
 import { serializeTitle } from "@/lib/catalog/serializers"
 import { TitleEditor } from "@/components/admin/title-editor"
 import { TitleAssetsManager } from "@/components/admin/title-assets-manager"
+import { TmdbEnrichPanel } from "@/components/admin/tmdb-enrich-panel"
 import { getAssetsForTitle } from "@/lib/catalog/queries"
 
 interface AdminTitlePageProps {
@@ -26,6 +27,7 @@ export default async function AdminTitlePage({ params }: AdminTitlePageProps) {
         <p className="text-sm text-muted-foreground">{title.slug}</p>
       </div>
       <TitleEditor mode="edit" initialTitle={title} />
+      <TmdbEnrichPanel title={title} />
       <TitleAssetsManager title={title} assets={assets} />
     </div>
   )

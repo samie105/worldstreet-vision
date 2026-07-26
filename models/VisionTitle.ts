@@ -29,6 +29,8 @@ export interface IVisionTitle extends Document {
   searchTerms: string[]
   /** Sort weight used by curated rails. Higher comes first. */
   weight: number
+  /** TMDB movie id once metadata enrichment has been applied. */
+  tmdbId?: number | null
   createdAt: Date
   updatedAt: Date
 }
@@ -66,12 +68,16 @@ const VisionTitleSchema = new Schema<IVisionTitle>(
     seasonNumber: { type: Number, default: null },
     searchTerms: { type: [String], default: [] },
     weight: { type: Number, default: 0 },
+    // No default on purpose: unenriched docs must lack the path entirely so the
+    // sparse unique index below skips them (a `null` default would collide).
+    tmdbId: { type: Number },
   },
   { timestamps: true, collection: "vision_titles" },
 )
 
 VisionTitleSchema.index({ title: "text", synopsis: "text", searchTerms: "text" })
 VisionTitleSchema.index({ status: 1, publishAt: 1 })
+VisionTitleSchema.index({ tmdbId: 1 }, { unique: true, sparse: true })
 
 const VisionTitle: Model<IVisionTitle> =
   (mongoose.models.VisionTitle as Model<IVisionTitle>) ??

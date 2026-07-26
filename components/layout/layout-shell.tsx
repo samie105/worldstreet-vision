@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation"
 
 import { cn } from "@/lib/utils"
 import { TopNav } from "@/components/layout/top-nav"
+import { SiteFooter } from "@/components/layout/site-footer"
 import type { CatalogTitle } from "@/lib/catalog/types"
 
 const CINEMATIC_PREFIXES = ["/watch"]
@@ -46,6 +47,7 @@ export function LayoutShell({ children, recommendations = [] }: LayoutShellProps
     <div className="min-h-dvh bg-background text-foreground">
       <TopNav recommendations={recommendations} />
       <main className={cn("min-h-dvh pt-14 pb-20 md:pt-16 md:pb-0")}>{children}</main>
+      <SiteFooter />
     </div>
   )
 }
