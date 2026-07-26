@@ -10,6 +10,8 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "img.clerk.com" },
       { protocol: "https", hostname: "api.dicebear.com" },
       { protocol: "https", hostname: "image.tmdb.org" },
+      // OMDb posters are served from IMDb's image CDN.
+      { protocol: "https", hostname: "m.media-amazon.com" },
     ],
   },
   experimental: {

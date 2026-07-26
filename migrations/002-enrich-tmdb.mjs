@@ -1,27 +1,38 @@
 /**
- * Migration 002 – Enrich existing Vision titles with TMDB metadata.
+ * Migration 002 – Enrich existing Vision titles with provider metadata.
  *
  * ENRICHMENT ONLY: no new titles are ever created. For each existing
- * `vision_titles` document without a `tmdbId`, search TMDB by title + year,
- * score the candidates, and auto-apply ONLY high-confidence matches
- * (near-exact title AND corroborating year). Everything else is skipped with
- * a reason and left for a human in the admin UI (/admin/catalog/[id] →
- * "Find on TMDB"). A wrong poster on the wrong film is worse than no poster.
+ * `vision_titles` document not yet linked to the chosen provider, search that
+ * provider by title + year, score the candidates, and auto-apply ONLY
+ * high-confidence matches (near-exact title AND corroborating year).
+ * Everything else is skipped with a reason and left for a human in the admin
+ * UI (/admin/catalog/[id] → "Find on …"). A wrong poster on the wrong film is
+ * worse than no poster.
  *
- * Idempotent via `tmdbId`: re-running skips every already-enriched title, so
- * a second pass produces no duplicate writes and no field churn.
+ * Two providers, same scoring:
+ *   tmdb — richest payload (poster, backdrop, tagline, credits, certification)
+ *   omdb — poster, plot, cast, director, genres, runtime, rating; NO backdrop
+ *          and NO tagline (OMDb simply has no such data — never faked), but it
+ *          does cover series, which TMDB's movie search does not.
+ *
+ * Idempotent via `tmdbId` / `imdbId`: re-running skips every title already
+ * linked to the chosen provider, so a second pass produces no duplicate writes
+ * and no field churn. Running both providers is fine — each records its own id.
  *
  * By default only EMPTY fields are filled — hand-written copy is preserved.
  * Pass --overwrite to also replace non-empty fields (posters, synopsis, …)
  * on high-confidence matches.
  *
  * Usage:
- *   node migrations/002-enrich-tmdb.mjs --dry-run        # report only, no writes
- *   node migrations/002-enrich-tmdb.mjs                  # apply high-confidence matches
- *   node migrations/002-enrich-tmdb.mjs --overwrite      # also replace filled fields
- *   node migrations/002-enrich-tmdb.mjs --limit=5        # first 5 titles only
+ *   node migrations/002-enrich-tmdb.mjs --dry-run          # report only, no writes
+ *   node migrations/002-enrich-tmdb.mjs                    # apply high-confidence matches
+ *   node migrations/002-enrich-tmdb.mjs --source=omdb      # use OMDb instead of TMDB
+ *   node migrations/002-enrich-tmdb.mjs --overwrite        # also replace filled fields
+ *   node migrations/002-enrich-tmdb.mjs --limit=5          # first 5 titles only
  *
- * Reads MONGODB_URI, MONGODB_DB_NAME and TMDB_API_KEY from .env.local.
+ * Reads MONGODB_URI, MONGODB_DB_NAME and TMDB_API_KEY / OMDB_API_KEY from
+ * .env.local. Without --source the provider is auto-picked exactly like the
+ * server action does: TMDB when its key is set, otherwise OMDb.
  */
 
 import { createRequire } from "node:module"
@@ -38,6 +49,7 @@ dotenv.config({ path: path.resolve(__dirname, "../.env.local") })
 const MONGODB_URI = process.env.MONGODB_URI
 const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || "user-account"
 const TMDB_API_KEY = process.env.TMDB_API_KEY
+const OMDB_API_KEY = process.env.OMDB_API_KEY
 
 const DRY_RUN = process.argv.includes("--dry-run")
 const OVERWRITE = process.argv.includes("--overwrite")
@@ -51,10 +63,35 @@ if (!MONGODB_URI) {
   console.error("❌  MONGODB_URI is not set in .env.local")
   process.exit(1)
 }
-if (!TMDB_API_KEY) {
-  console.error("❌  TMDB_API_KEY not configured — add it to .env.local (name is in .env.example)")
+
+/** --source=tmdb|omdb, else auto: TMDB when configured, otherwise OMDb. */
+const SOURCE = (() => {
+  const arg = process.argv.find((a) => a.startsWith("--source="))
+  const requested = arg ? (arg.split("=")[1] ?? "").trim().toLowerCase() : ""
+  if (requested && requested !== "tmdb" && requested !== "omdb") {
+    console.error(`❌  Unknown --source=${requested} — expected "tmdb" or "omdb"`)
+    process.exit(1)
+  }
+  if (requested === "tmdb" && !TMDB_API_KEY) {
+    console.error("❌  TMDB_API_KEY not configured — add it to .env.local (name is in .env.example)")
+    process.exit(1)
+  }
+  if (requested === "omdb" && !OMDB_API_KEY) {
+    console.error("❌  OMDB_API_KEY not configured — add it to .env.local (name is in .env.example)")
+    process.exit(1)
+  }
+  if (requested) return requested
+  if (TMDB_API_KEY) return "tmdb"
+  if (OMDB_API_KEY) return "omdb"
+  console.error(
+    "❌  TMDB_API_KEY or OMDB_API_KEY not configured — add one to .env.local (names are in .env.example)",
+  )
   process.exit(1)
-}
+})()
+
+const SOURCE_LABEL = SOURCE === "tmdb" ? "TMDB" : "OMDb"
+/** The id field that makes this migration idempotent for the chosen provider. */
+const LINK_FIELD = SOURCE === "tmdb" ? "tmdbId" : "imdbId"
 
 // ── Mongoose (schema mirrors models/VisionTitle.ts) ─────────────────────────
 const mongoose = require("mongoose")
@@ -87,10 +124,12 @@ const VisionTitleSchema = new Schema(
     kind: { type: String, enum: ["movie", "series"], default: "movie" },
     // No default: unenriched docs must lack the path so the sparse index skips them.
     tmdbId: { type: Number },
+    imdbId: { type: String },
   },
   { timestamps: true, collection: "vision_titles" },
 )
 VisionTitleSchema.index({ tmdbId: 1 }, { unique: true, sparse: true })
+VisionTitleSchema.index({ imdbId: 1 }, { unique: true, sparse: true })
 
 const VisionTitle = mongoose.models.VisionTitle ?? mongoose.model("VisionTitle", VisionTitleSchema)
 
@@ -224,7 +263,7 @@ function tmdbImageUrl(imgPath, size) {
 
 const MAX_CAST_NAMES = 8
 
-async function buildIncomingEnrichment(tmdbId) {
+async function buildTmdbEnrichment(tmdbId) {
   const [details, credits, releaseDates] = await Promise.all([
     tmdbFetch(`/movie/${tmdbId}`),
     tmdbFetch(`/movie/${tmdbId}/credits`),
@@ -249,6 +288,122 @@ async function buildIncomingEnrichment(tmdbId) {
       ? Number.parseInt(details.release_date.slice(0, 4), 10) || null
       : null,
   }
+}
+
+// ── OMDb fetch + mapping (mirrors lib/omdb/client.ts + lib/omdb/map.ts) ─────
+
+const OMDB_API_BASE = "https://www.omdbapi.com/"
+/** OMDb "errors" that just mean "nothing matched" — an empty list, not a failure. */
+const OMDB_SOFT_SEARCH_ERRORS = ["movie not found", "series not found", "too many results"]
+
+async function omdbFetch(params) {
+  const url = new URL(OMDB_API_BASE)
+  url.searchParams.set("apikey", OMDB_API_KEY)
+  url.searchParams.set("r", "json")
+  for (const [name, value] of Object.entries(params)) {
+    if (value !== "" && value != null) url.searchParams.set(name, String(value))
+  }
+  const response = await fetch(url, { headers: { accept: "application/json" } })
+  if (!response.ok) {
+    const body = await response.text().catch(() => "")
+    throw new Error(`OMDb request failed (${response.status}): ${body.slice(0, 200)}`)
+  }
+  const payload = await response.json()
+  // OMDb reports every failure with HTTP 200 — the envelope is the real status.
+  if (payload.Response !== "True") {
+    const error = new Error(`OMDb: ${payload.Error ?? "unknown error"}`)
+    error.omdbError = payload.Error ?? ""
+    throw error
+  }
+  return payload
+}
+
+async function omdbSearch(query, year) {
+  try {
+    const payload = await omdbFetch({ s: query, y: year || "" })
+    return payload.Search ?? []
+  } catch (err) {
+    const message = (err.omdbError ?? "").toLowerCase()
+    if (message && OMDB_SOFT_SEARCH_ERRORS.some((soft) => message.includes(soft))) return []
+    throw err
+  }
+}
+
+function omdbText(value) {
+  const text = (value ?? "").trim()
+  if (text === "" || text.toLowerCase() === "n/a") return ""
+  return text
+}
+
+function parseOmdbYear(value) {
+  const match = omdbText(value).match(/\d{4}/)
+  if (!match) return null
+  const year = Number.parseInt(match[0], 10)
+  if (!Number.isFinite(year) || year < 1870 || year > 2100) return null
+  return year
+}
+
+function parseOmdbRuntimeSeconds(value) {
+  const text = omdbText(value)
+  if (!text) return 0
+  const hours = text.match(/(\d+)\s*h/i)
+  const minutes = text.match(/(\d+)\s*min/i)
+  const total =
+    (hours ? Number.parseInt(hours[1], 10) : 0) * 3600 +
+    (minutes ? Number.parseInt(minutes[1], 10) : 0) * 60
+  if (total > 0) return total
+  const bare = /^\d+$/.test(text) ? Number.parseInt(text, 10) : 0
+  return bare > 0 ? bare * 60 : 0
+}
+
+function splitOmdbList(value) {
+  const text = omdbText(value)
+  if (!text) return []
+  return text
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "" && entry.toLowerCase() !== "n/a")
+}
+
+function omdbPosterUrl(value) {
+  const text = omdbText(value)
+  return text.startsWith("http") ? text : ""
+}
+
+function mapOmdbDetailToEnrichment(detail) {
+  return {
+    posterUrl: omdbPosterUrl(detail.Poster),
+    // OMDb has a single poster image and no tagline — these stay empty, never faked.
+    backdropUrl: "",
+    synopsis: omdbText(detail.Plot),
+    tagline: "",
+    cast: splitOmdbList(detail.Actors),
+    director: splitOmdbList(detail.Director).join(", "),
+    genres: splitOmdbList(detail.Genre),
+    durationSeconds: parseOmdbRuntimeSeconds(detail.Runtime),
+    maturityRating: certificationToMaturityRating(omdbText(detail.Rated)),
+    releaseYear: parseOmdbYear(detail.Year),
+  }
+}
+
+/** Same scorer as TMDB — OMDb search has only a year, so a date is synthesized. */
+function rankOmdbCandidates(local, results) {
+  const facts = results
+    .map((item, index) => {
+      const imdbId = omdbText(item.imdbID)
+      const year = parseOmdbYear(item.Year)
+      return {
+        id: Number.parseInt(imdbId.replace(/\D/g, ""), 10) || 0,
+        imdbId,
+        title: omdbText(item.Title),
+        releaseDate: year === null ? undefined : `${year}-01-01`,
+        popularity: results.length - index,
+        year,
+        mediaType: omdbText(item.Type),
+      }
+    })
+    .filter((candidate) => candidate.imdbId !== "" && candidate.title !== "")
+  return rankCandidates(local, facts)
 }
 
 // ── Field application policy ────────────────────────────────────────────────
@@ -304,6 +459,10 @@ async function run() {
     family: 4,
   })
   console.log("✅  Connected")
+  console.log(`🎬  Source: ${SOURCE_LABEL} (idempotent on ${LINK_FIELD})`)
+  if (SOURCE === "omdb") {
+    console.log("ℹ️   OMDb has no backdrop or tagline data — those fields are never touched")
+  }
   if (DRY_RUN) console.log("🧪  DRY RUN — no writes will be made")
   if (OVERWRITE) console.log("⚠️   --overwrite: high-confidence matches replace filled fields too")
 
@@ -321,48 +480,58 @@ async function run() {
   for (const title of queue) {
     const label = `${title.title} (${title.releaseYear ?? "—"})`
     try {
-      if (title.tmdbId) {
+      if (title[LINK_FIELD]) {
         report.skipped.alreadyEnriched.push(label)
-        console.log(`↷  ${label} — already enriched (tmdbId ${title.tmdbId})`)
+        console.log(`↷  ${label} — already enriched (${LINK_FIELD} ${title[LINK_FIELD]})`)
         continue
       }
       const isSeries =
         title.kind === "series" ||
         (title.genres ?? []).some((g) => String(g).toLowerCase() === "series")
-      if (isSeries) {
+      // OMDb search covers series too, so only TMDB has to skip them.
+      if (isSeries && SOURCE === "tmdb") {
         report.skipped.series.push(label)
-        console.log(`↷  ${label} — series (TMDB movie search only)`)
+        console.log(`↷  ${label} — series (TMDB movie search only; try --source=omdb)`)
         continue
       }
 
-      let search = await tmdbFetch("/search/movie", {
-        query: title.title,
-        include_adult: "false",
-        year: title.releaseYear || "",
-      })
-      if ((search.results ?? []).length === 0 && title.releaseYear) {
-        search = await tmdbFetch("/search/movie", {
+      const local = { title: title.title, releaseYear: title.releaseYear }
+      let ranked
+      if (SOURCE === "tmdb") {
+        let search = await tmdbFetch("/search/movie", {
           query: title.title,
           include_adult: "false",
+          year: title.releaseYear || "",
         })
+        if ((search.results ?? []).length === 0 && title.releaseYear) {
+          search = await tmdbFetch("/search/movie", {
+            query: title.title,
+            include_adult: "false",
+          })
+        }
+        ranked = rankCandidates(
+          local,
+          (search.results ?? []).map((movie) => ({
+            id: movie.id,
+            title: movie.title,
+            originalTitle: movie.original_title,
+            releaseDate: movie.release_date,
+            popularity: movie.popularity,
+            voteCount: movie.vote_count,
+          })),
+        )
+      } else {
+        let results = await omdbSearch(title.title, title.releaseYear)
+        if (results.length === 0 && title.releaseYear) {
+          results = await omdbSearch(title.title)
+        }
+        ranked = rankOmdbCandidates(local, results)
       }
-
-      const ranked = rankCandidates(
-        { title: title.title, releaseYear: title.releaseYear },
-        (search.results ?? []).map((movie) => ({
-          id: movie.id,
-          title: movie.title,
-          originalTitle: movie.original_title,
-          releaseDate: movie.release_date,
-          popularity: movie.popularity,
-          voteCount: movie.vote_count,
-        })),
-      )
       const best = ranked[0]
 
       if (!best) {
         report.skipped.noCandidates.push(label)
-        console.log(`↷  ${label} — no TMDB candidates`)
+        console.log(`↷  ${label} — no ${SOURCE_LABEL} candidates`)
         continue
       }
       if (best.confidence !== "high") {
@@ -372,8 +541,14 @@ async function run() {
         continue
       }
 
-      const incoming = await buildIncomingEnrichment(best.candidate.id)
-      const update = { tmdbId: best.candidate.id }
+      const matchLabel =
+        SOURCE === "tmdb" ? `TMDB #${best.candidate.id}` : `IMDb ${best.candidate.imdbId}`
+      const incoming =
+        SOURCE === "tmdb"
+          ? await buildTmdbEnrichment(best.candidate.id)
+          : mapOmdbDetailToEnrichment(await omdbFetch({ i: best.candidate.imdbId, plot: "full" }))
+      const update =
+        SOURCE === "tmdb" ? { tmdbId: best.candidate.id } : { imdbId: best.candidate.imdbId }
       const appliedFields = []
       for (const field of ENRICHABLE_FIELDS) {
         if (!hasValue(incoming[field])) continue
@@ -396,16 +571,16 @@ async function run() {
         await VisionTitle.updateOne({ _id: title._id }, { $set: update })
       }
       report.applied.push(
-        `${label} → TMDB #${best.candidate.id} "${best.candidate.title}" [${best.score.toFixed(2)}] — ${appliedFields.length ? appliedFields.join(", ") : "tmdbId only (all fields hand-filled)"}`,
+        `${label} → ${matchLabel} "${best.candidate.title}" [${best.score.toFixed(2)}] — ${appliedFields.length ? appliedFields.join(", ") : `${LINK_FIELD} only (all fields hand-filled)`}`,
       )
       console.log(
-        `✓  ${label} → TMDB #${best.candidate.id} "${best.candidate.title}" [high ${best.score.toFixed(2)}]${DRY_RUN ? " (dry run)" : ""} — set: ${appliedFields.join(", ") || "tmdbId only"}`,
+        `✓  ${label} → ${matchLabel} "${best.candidate.title}" [high ${best.score.toFixed(2)}]${DRY_RUN ? " (dry run)" : ""} — set: ${appliedFields.join(", ") || `${LINK_FIELD} only`}`,
       )
     } catch (err) {
       report.errors.push(`${label} — ${err.message}`)
       console.error(`✗  ${label} — ${err.message}`)
     }
-    await sleep(250) // stay polite to the TMDB API
+    await sleep(250) // stay polite to the provider API
   }
 
   // ── Report ────────────────────────────────────────────────────────────────
@@ -415,7 +590,7 @@ async function run() {
     report.skipped.noCandidates.length +
     report.skipped.lowConfidence.length
 
-  console.log(`\n📊  Report${DRY_RUN ? " (DRY RUN — nothing was written)" : ""}`)
+  console.log(`\n📊  Report — ${SOURCE_LABEL}${DRY_RUN ? " (DRY RUN — nothing was written)" : ""}`)
   console.log(`   ✓ applied            : ${report.applied.length}`)
   console.log(`   ↷ skipped            : ${skippedTotal}`)
   console.log(`     - already enriched : ${report.skipped.alreadyEnriched.length}`)
@@ -428,7 +603,7 @@ async function run() {
     .join(", ")
   console.log(`   fields filled        : ${filled || "none"}`)
   if (report.skipped.lowConfidence.length > 0) {
-    console.log(`\n   Needs a human (admin UI → "Find on TMDB"):`)
+    console.log(`\n   Needs a human (admin UI → "Find on ${SOURCE_LABEL}"):`)
     for (const line of report.skipped.lowConfidence) console.log(`     • ${line}`)
   }
   if (report.errors.length > 0) {

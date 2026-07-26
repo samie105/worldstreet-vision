@@ -7,6 +7,9 @@ import { TitleEditor } from "@/components/admin/title-editor"
 import { TitleAssetsManager } from "@/components/admin/title-assets-manager"
 import { TmdbEnrichPanel } from "@/components/admin/tmdb-enrich-panel"
 import { getAssetsForTitle } from "@/lib/catalog/queries"
+import { isTmdbConfigured } from "@/lib/tmdb/client"
+import { isOmdbConfigured } from "@/lib/omdb/client"
+import type { EnrichSource } from "@/lib/actions/catalog-enrich"
 
 interface AdminTitlePageProps {
   params: Promise<{ id: string }>
@@ -19,6 +22,11 @@ export default async function AdminTitlePage({ params }: AdminTitlePageProps) {
   if (!doc) notFound()
   const title = serializeTitle(doc)
   const assets = await getAssetsForTitle(title._id)
+  // Resolved server-side so the panel only offers providers that have a key.
+  const enrichSources: EnrichSource[] = [
+    ...(isTmdbConfigured() ? (["tmdb"] as const) : []),
+    ...(isOmdbConfigured() ? (["omdb"] as const) : []),
+  ]
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-8">
@@ -27,7 +35,7 @@ export default async function AdminTitlePage({ params }: AdminTitlePageProps) {
         <p className="text-sm text-muted-foreground">{title.slug}</p>
       </div>
       <TitleEditor mode="edit" initialTitle={title} />
-      <TmdbEnrichPanel title={title} />
+      <TmdbEnrichPanel title={title} sources={enrichSources} />
       <TitleAssetsManager title={title} assets={assets} />
     </div>
   )

@@ -57,4 +57,13 @@ export const env = {
       return Boolean(optional("TMDB_API_KEY"))
     },
   },
+  omdb: {
+    get apiKey() {
+      return required("OMDB_API_KEY")
+    },
+    /** Second metadata provider — either key (or neither) is a valid deploy. */
+    get isConfigured() {
+      return Boolean(optional("OMDB_API_KEY"))
+    },
+  },
 }

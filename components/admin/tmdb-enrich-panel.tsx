@@ -16,10 +16,12 @@ import {
 } from "@/components/ui/dialog"
 import { TmdbAttribution } from "@/components/layout/tmdb-attribution"
 import {
-  applyTmdbEnrichment,
-  getTmdbEnrichmentPreview,
-  searchTmdbForTitle,
-  type TmdbCandidate,
+  applyEnrichment,
+  getEnrichmentPreview,
+  searchMetadataForTitle,
+  type EnrichSource,
+  type EnrichSourceRef,
+  type MetadataCandidate,
 } from "@/lib/actions/catalog-enrich"
 import {
   ENRICHABLE_FIELDS,
@@ -33,6 +35,11 @@ const CONFIDENCE_VARIANT: Record<MatchConfidence, React.ComponentProps<typeof Ba
   high: "new",
   medium: "outline",
   low: "muted",
+}
+
+const SOURCE_LABELS: Record<EnrichSource, string> = {
+  tmdb: "TMDB",
+  omdb: "OMDb",
 }
 
 const FIELD_LABELS: Record<EnrichableField, string> = {
@@ -52,24 +59,37 @@ type Step = "candidates" | "diff"
 
 interface TmdbEnrichPanelProps {
   title: CatalogTitle
+  /**
+   * Providers with an API key on this deploy, resolved server-side. Omit to let
+   * the first search discover them (the server picks a default either way).
+   */
+  sources?: EnrichSource[]
 }
 
 /**
- * Per-title TMDB enrichment: "Find on TMDB" → candidate picker with poster
- * thumbnails → side-by-side current-vs-incoming diff where the admin picks
- * exactly which fields to overwrite. Hand-filled fields default to unchecked
- * so curated copy is never clobbered by accident.
+ * Per-title metadata enrichment: pick a provider → "Find on TMDB/OMDb" →
+ * candidate picker with poster thumbnails → side-by-side current-vs-incoming
+ * diff where the admin picks exactly which fields to overwrite. Hand-filled
+ * fields default to unchecked so curated copy is never clobbered by accident.
+ *
+ * Providers are not interchangeable: OMDb has no backdrop and no tagline, so
+ * those rows render disabled instead of pretending an empty value is data.
  */
-export function TmdbEnrichPanel({ title }: TmdbEnrichPanelProps) {
+export function TmdbEnrichPanel({ title, sources }: TmdbEnrichPanelProps) {
   const router = useRouter()
   const [open, setOpen] = React.useState(false)
   const [step, setStep] = React.useState<Step>("candidates")
   const [pending, startTransition] = React.useTransition()
   const [error, setError] = React.useState<string | null>(null)
-  const [candidates, setCandidates] = React.useState<TmdbCandidate[] | null>(null)
-  const [selected, setSelected] = React.useState<TmdbCandidate | null>(null)
+  const [available, setAvailable] = React.useState<EnrichSource[]>(sources ?? [])
+  const [source, setSource] = React.useState<EnrichSource>(sources?.[0] ?? "tmdb")
+  const [candidates, setCandidates] = React.useState<MetadataCandidate[] | null>(null)
+  const [selected, setSelected] = React.useState<MetadataCandidate | null>(null)
   const [incoming, setIncoming] = React.useState<EnrichmentFields | null>(null)
+  const [unavailable, setUnavailable] = React.useState<EnrichableField[]>([])
   const [checked, setChecked] = React.useState<Set<EnrichableField>>(new Set())
+
+  const linked = title.tmdbId ? "tmdb" : title.imdbId ? "omdb" : null
 
   const openAndSearch = () => {
     setOpen(true)
@@ -79,25 +99,43 @@ export function TmdbEnrichPanel({ title }: TmdbEnrichPanelProps) {
     setSelected(null)
     setIncoming(null)
     startTransition(async () => {
-      const result = await searchTmdbForTitle(title._id)
+      // Only pin the provider once we know which ones are configured —
+      // otherwise let the server pick its default and tell us what it used.
+      const result = await searchMetadataForTitle(
+        title._id,
+        available.length > 0 ? { source } : undefined,
+      )
       if (!result.success || !result.data) {
         setError(result.error ?? "Search failed")
         return
       }
+      setAvailable(result.data.availableSources)
+      setSource(result.data.source)
       setCandidates(result.data.candidates)
     })
   }
 
-  const selectCandidate = (candidate: TmdbCandidate) => {
+  const selectSource = (next: EnrichSource) => {
+    if (next === source) return
+    setSource(next)
+    setError(null)
+    setCandidates(null)
+    setSelected(null)
+    setIncoming(null)
+    setStep("candidates")
+  }
+
+  const selectCandidate = (candidate: MetadataCandidate) => {
     setError(null)
     setSelected(candidate)
     startTransition(async () => {
-      const result = await getTmdbEnrichmentPreview(title._id, candidate.tmdbId)
+      const result = await getEnrichmentPreview(title._id, candidateRef(candidate))
       if (!result.success || !result.data) {
-        setError(result.error ?? "Failed to load TMDB details")
+        setError(result.error ?? `Failed to load ${SOURCE_LABELS[candidate.source]} details`)
         return
       }
       setIncoming(result.data.incoming)
+      setUnavailable(result.data.unavailableFields)
       setChecked(defaultChecked(title, result.data.incoming))
       setStep("diff")
     })
@@ -116,7 +154,7 @@ export function TmdbEnrichPanel({ title }: TmdbEnrichPanelProps) {
     if (!selected) return
     setError(null)
     startTransition(async () => {
-      const result = await applyTmdbEnrichment(title._id, selected.tmdbId, [...checked])
+      const result = await applyEnrichment(title._id, candidateRef(selected), [...checked])
       if (!result.success) {
         setError(result.error ?? "Failed to apply enrichment")
         return
@@ -133,17 +171,22 @@ export function TmdbEnrichPanel({ title }: TmdbEnrichPanelProps) {
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold">TMDB metadata</h3>
+          <h3 className="text-sm font-semibold">Metadata enrichment</h3>
           <p className="text-xs text-muted-foreground">
-            {title.tmdbId
-              ? `Linked to TMDB #${title.tmdbId}. Re-match to pull fresh fields.`
-              : "Match this title to TMDB to pull poster, backdrop, synopsis, cast and more."}
+            {linked
+              ? `Linked to ${linkLabel(title)}. Re-match to pull fresh fields.`
+              : `Match this title on ${SOURCE_LABELS[source]} to pull poster, synopsis, cast and more.`}
           </p>
         </div>
         <div className="flex items-center gap-2">
           {title.tmdbId ? (
             <Badge variant="new" data-testid="tmdb-linked-badge">
               TMDB #{title.tmdbId}
+            </Badge>
+          ) : null}
+          {title.imdbId ? (
+            <Badge variant="new" data-testid="omdb-linked-badge">
+              IMDb {title.imdbId}
             </Badge>
           ) : null}
           <Button
@@ -153,24 +196,30 @@ export function TmdbEnrichPanel({ title }: TmdbEnrichPanelProps) {
             onClick={openAndSearch}
             data-testid="tmdb-find-button"
           >
-            {title.tmdbId ? "Re-match on TMDB" : "Find on TMDB"}
+            {`${linked ? "Re-match" : "Find"} on ${SOURCE_LABELS[source]}`}
           </Button>
         </div>
       </div>
-      <TmdbAttribution />
+
+      <SourcePicker available={available} source={source} onSelect={selectSource} />
+      <ProviderAttribution source={source} />
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[85dvh] max-w-2xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {step === "candidates" ? "Find on TMDB" : "Review incoming fields"}
+              {step === "candidates"
+                ? `Find on ${SOURCE_LABELS[source]}`
+                : "Review incoming fields"}
             </DialogTitle>
             <DialogDescription>
               {step === "candidates"
                 ? `Candidates for “${title.title}”${title.releaseYear ? ` (${title.releaseYear})` : ""}. Pick the right film — low-confidence matches are never applied automatically.`
-                : `Choose which fields to overwrite with TMDB data. Hand-filled fields start unchecked.`}
+                : `Choose which fields to overwrite with ${SOURCE_LABELS[source]} data. Hand-filled fields start unchecked.`}
             </DialogDescription>
           </DialogHeader>
+
+          <SourcePicker available={available} source={source} onSelect={selectSource} inDialog />
 
           {error ? (
             <p
@@ -185,8 +234,9 @@ export function TmdbEnrichPanel({ title }: TmdbEnrichPanelProps) {
             <CandidateList
               candidates={candidates}
               pending={pending}
+              source={source}
               onSelect={selectCandidate}
-              selectedId={selected?.tmdbId ?? null}
+              selectedKey={selected ? candidateKey(selected) : null}
             />
           ) : null}
 
@@ -195,12 +245,14 @@ export function TmdbEnrichPanel({ title }: TmdbEnrichPanelProps) {
               title={title}
               incoming={incoming}
               checked={checked}
+              unavailable={unavailable}
+              source={selected.source}
               onToggle={toggleField}
             />
           ) : null}
 
           <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-3">
-            <TmdbAttribution className="max-w-[60%]" />
+            <ProviderAttribution source={source} className="max-w-[60%]" />
             <div className="flex items-center gap-2">
               {step === "diff" ? (
                 <>
@@ -238,80 +290,158 @@ export function TmdbEnrichPanel({ title }: TmdbEnrichPanelProps) {
   )
 }
 
+// ── Provider picker ──────────────────────────────────────────────────────────
+
+/** Only ever offers providers that actually have a key on this deploy. */
+function SourcePicker({
+  available,
+  source,
+  onSelect,
+  inDialog = false,
+}: {
+  available: EnrichSource[]
+  source: EnrichSource
+  onSelect: (source: EnrichSource) => void
+  inDialog?: boolean
+}) {
+  if (available.length === 0) return null
+  return (
+    <div
+      className={cn("flex items-center gap-2", inDialog && "pt-1")}
+      data-testid="tmdb-source-picker"
+    >
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        Source
+      </span>
+      <div className="flex items-center gap-1 rounded-lg border border-border/60 p-0.5">
+        {available.map((option) => (
+          <button
+            key={option}
+            type="button"
+            data-testid={`tmdb-source-${option}`}
+            aria-pressed={option === source}
+            onClick={() => onSelect(option)}
+            className={cn(
+              "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+              option === source
+                ? "bg-primary/10 text-foreground"
+                : "text-muted-foreground hover:bg-accent",
+            )}
+          >
+            {SOURCE_LABELS[option]}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** TMDB's terms require their attribution line — only shown for TMDB data. */
+function ProviderAttribution({ source, className }: { source: EnrichSource; className?: string }) {
+  if (source === "tmdb") return <TmdbAttribution className={className} />
+  return (
+    <p
+      data-testid="omdb-attribution"
+      className={cn("text-[11px] leading-snug text-muted-foreground", className)}
+    >
+      Metadata from OMDb (omdbapi.com). OMDb has no backdrop or tagline data.
+    </p>
+  )
+}
+
 // ── Candidate picker ─────────────────────────────────────────────────────────
 
 function CandidateList({
   candidates,
   pending,
+  source,
   onSelect,
-  selectedId,
+  selectedKey,
 }: {
-  candidates: TmdbCandidate[] | null
+  candidates: MetadataCandidate[] | null
   pending: boolean
-  onSelect: (candidate: TmdbCandidate) => void
-  selectedId: number | null
+  source: EnrichSource
+  onSelect: (candidate: MetadataCandidate) => void
+  selectedKey: string | null
 }) {
   if (pending && candidates === null) {
-    return <p className="py-8 text-center text-sm text-muted-foreground">Searching TMDB…</p>
+    return (
+      <p className="py-8 text-center text-sm text-muted-foreground">
+        Searching {SOURCE_LABELS[source]}…
+      </p>
+    )
   }
   if (candidates === null) return null
   if (candidates.length === 0) {
     return (
       <p className="py-8 text-center text-sm text-muted-foreground">
-        No TMDB movies matched this title. Series and originals won&apos;t match — TMDB search
-        covers films only.
+        {source === "tmdb"
+          ? "No TMDB movies matched this title. Series and originals won’t match — TMDB search covers films only."
+          : "No OMDb records matched this title. Originals won’t match — try the other provider or fill the fields by hand."}
       </p>
     )
   }
   return (
     <ul className="flex flex-col gap-2" data-testid="tmdb-candidate-list">
-      {candidates.map((candidate) => (
-        <li key={candidate.tmdbId}>
-          <button
-            type="button"
-            data-testid="tmdb-candidate"
-            disabled={pending}
-            onClick={() => onSelect(candidate)}
-            className={cn(
-              "flex w-full items-start gap-3 rounded-lg border border-border/60 p-2.5 text-left transition-colors",
-              "hover:bg-accent disabled:opacity-60",
-              selectedId === candidate.tmdbId && "border-primary/60 bg-primary/5",
-            )}
-          >
-            <div className="relative h-[69px] w-[46px] shrink-0 overflow-hidden rounded-md bg-muted">
-              {candidate.posterThumbUrl ? (
-                <Image
-                  src={candidate.posterThumbUrl}
-                  alt=""
-                  fill
-                  sizes="46px"
-                  className="object-cover"
-                  unoptimized
-                />
-              ) : null}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="truncate text-sm font-medium">{candidate.title}</span>
-                <span className="text-xs tabular-nums text-muted-foreground">
-                  {candidate.year ?? "—"}
-                </span>
-                <Badge variant={CONFIDENCE_VARIANT[candidate.confidence]}>
-                  {candidate.confidence} · {candidate.score.toFixed(2)}
-                </Badge>
+      {candidates.map((candidate) => {
+        const key = candidateKey(candidate)
+        return (
+          <li key={key}>
+            <button
+              type="button"
+              data-testid="tmdb-candidate"
+              disabled={pending}
+              onClick={() => onSelect(candidate)}
+              className={cn(
+                "flex w-full items-start gap-3 rounded-lg border border-border/60 p-2.5 text-left transition-colors",
+                "hover:bg-accent disabled:opacity-60",
+                selectedKey === key && "border-primary/60 bg-primary/5",
+              )}
+            >
+              <div className="relative h-[69px] w-[46px] shrink-0 overflow-hidden rounded-md bg-muted">
+                {candidate.posterThumbUrl ? (
+                  <Image
+                    src={candidate.posterThumbUrl}
+                    alt=""
+                    fill
+                    sizes="46px"
+                    className="object-cover"
+                    unoptimized
+                  />
+                ) : null}
               </div>
-              {candidate.originalTitle && candidate.originalTitle !== candidate.title ? (
-                <p className="truncate text-xs text-muted-foreground">
-                  Original: {candidate.originalTitle}
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="truncate text-sm font-medium">{candidate.title}</span>
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    {candidate.year ?? "—"}
+                  </span>
+                  <Badge variant={CONFIDENCE_VARIANT[candidate.confidence]}>
+                    {candidate.confidence} · {candidate.score.toFixed(2)}
+                  </Badge>
+                  <Badge variant="muted" data-testid="tmdb-candidate-source">
+                    {SOURCE_LABELS[candidate.source]}
+                    {candidate.mediaType && candidate.mediaType !== "movie"
+                      ? ` · ${candidate.mediaType}`
+                      : ""}
+                  </Badge>
+                </div>
+                {candidate.originalTitle && candidate.originalTitle !== candidate.title ? (
+                  <p className="truncate text-xs text-muted-foreground">
+                    Original: {candidate.originalTitle}
+                  </p>
+                ) : null}
+                <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                  {candidate.overview ||
+                    (candidate.imdbId
+                      ? `IMDb ${candidate.imdbId} — synopsis loads when you select it.`
+                      : "No overview available.")}
                 </p>
-              ) : null}
-              <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                {candidate.overview || "No overview available."}
-              </p>
-            </div>
-          </button>
-        </li>
-      ))}
+              </div>
+            </button>
+          </li>
+        )
+      })}
     </ul>
   )
 }
@@ -322,11 +452,15 @@ function FieldDiff({
   title,
   incoming,
   checked,
+  unavailable,
+  source,
   onToggle,
 }: {
   title: CatalogTitle
   incoming: EnrichmentFields
   checked: Set<EnrichableField>
+  unavailable: EnrichableField[]
+  source: EnrichSource
   onToggle: (field: EnrichableField) => void
 }) {
   return (
@@ -335,36 +469,48 @@ function FieldDiff({
         <span />
         <span>Field</span>
         <span>Current</span>
-        <span>From TMDB</span>
+        <span>From {SOURCE_LABELS[source]}</span>
       </div>
       {ENRICHABLE_FIELDS.map((field) => {
+        const unsupported = unavailable.includes(field)
         const incomingEmpty = !hasValue(incoming[field])
+        const disabled = unsupported || incomingEmpty
         const isChecked = checked.has(field)
         return (
           <label
             key={field}
             className={cn(
               "grid grid-cols-[1.25rem_7rem_1fr_1fr] items-start gap-2 rounded-lg border border-border/60 p-2",
-              incomingEmpty ? "opacity-50" : "cursor-pointer hover:bg-accent/40",
-              isChecked && !incomingEmpty && "border-primary/50 bg-primary/5",
+              disabled ? "opacity-50" : "cursor-pointer hover:bg-accent/40",
+              isChecked && !disabled && "border-primary/50 bg-primary/5",
             )}
           >
             <input
               type="checkbox"
               checked={isChecked}
-              disabled={incomingEmpty}
+              disabled={disabled}
               onChange={() => onToggle(field)}
               data-testid={`tmdb-field-${field}`}
               className="mt-0.5 size-3.5 accent-[var(--primary)]"
             />
             <span className="pt-0.5 text-xs font-medium">{FIELD_LABELS[field]}</span>
             <FieldValue field={field} value={currentValue(title, field)} />
-            <FieldValue field={field} value={incoming[field]} incoming />
+            {unsupported ? (
+              <span
+                data-testid={`tmdb-field-unavailable-${field}`}
+                className="text-xs text-muted-foreground/70"
+              >
+                not available from {SOURCE_LABELS[source]}
+              </span>
+            ) : (
+              <FieldValue field={field} value={incoming[field]} incoming />
+            )}
           </label>
         )
       })}
       <p className="px-1 pt-1 text-[11px] text-muted-foreground">
-        Unchecked fields keep their current values. Empty TMDB fields can&apos;t be applied.
+        Unchecked fields keep their current values. Empty {SOURCE_LABELS[source]} fields can’t be
+        applied.
       </p>
     </div>
   )
@@ -410,6 +556,24 @@ function FieldValue({
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+/** Stable identity for a candidate across both providers. */
+function candidateKey(candidate: MetadataCandidate): string {
+  return candidate.source === "tmdb" ? `tmdb:${candidate.tmdbId}` : `omdb:${candidate.imdbId}`
+}
+
+function candidateRef(candidate: MetadataCandidate): EnrichSourceRef {
+  return candidate.source === "tmdb"
+    ? { source: "tmdb", tmdbId: candidate.tmdbId }
+    : { source: "omdb", imdbId: candidate.imdbId }
+}
+
+function linkLabel(title: CatalogTitle): string {
+  const parts: string[] = []
+  if (title.tmdbId) parts.push(`TMDB #${title.tmdbId}`)
+  if (title.imdbId) parts.push(`IMDb ${title.imdbId}`)
+  return parts.join(" and ")
+}
+
 function currentValue(title: CatalogTitle, field: EnrichableField): unknown {
   switch (field) {
     case "posterUrl":
@@ -444,13 +608,11 @@ function hasValue(value: unknown): boolean {
 }
 
 /**
- * Fields default to checked only when the current value is empty and TMDB has
- * something to offer — hand-filled fields always start unchecked.
+ * Fields default to checked only when the current value is empty and the
+ * provider has something to offer — hand-filled fields always start unchecked,
+ * and fields the provider cannot supply are empty so they stay unchecked too.
  */
-function defaultChecked(
-  title: CatalogTitle,
-  incoming: EnrichmentFields,
-): Set<EnrichableField> {
+function defaultChecked(title: CatalogTitle, incoming: EnrichmentFields): Set<EnrichableField> {
   const next = new Set<EnrichableField>()
   for (const field of ENRICHABLE_FIELDS) {
     if (!hasValue(currentValue(title, field)) && hasValue(incoming[field])) {

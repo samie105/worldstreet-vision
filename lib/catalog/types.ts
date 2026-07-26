@@ -50,6 +50,8 @@ export interface CatalogTitle {
   updatedAt: string
   /** TMDB movie id when the title has been enriched. Optional — mock data omits it. */
   tmdbId?: number | null
+  /** IMDb id when the title has been enriched from OMDb. Optional — mock data omits it. */
+  imdbId?: string | null
   /** Movie or multi-episode series. Defaults to "movie". */
   kind: TitleKind
   /** Short URL (HLS) used for hover-to-preview cards. */

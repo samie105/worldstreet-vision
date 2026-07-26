@@ -13,11 +13,24 @@ import {
   getMovieDetails,
   getMovieReleaseDates,
   isTmdbConfigured,
-  searchMovies,
+  searchMovies as searchTmdbMovies,
   tmdbImageUrl,
   TMDB_NOT_CONFIGURED_MESSAGE,
   TmdbNotConfiguredError,
 } from "@/lib/tmdb/client"
+import {
+  getByImdbId,
+  isOmdbConfigured,
+  searchMovies as searchOmdbTitles,
+  OMDB_NOT_CONFIGURED_MESSAGE,
+  OmdbApiError,
+  OmdbNotConfiguredError,
+} from "@/lib/omdb/client"
+import {
+  mapOmdbDetailToEnrichment,
+  rankOmdbCandidates,
+  OMDB_UNAVAILABLE_FIELDS,
+} from "@/lib/omdb/map"
 import {
   certificationToMaturityRating,
   ENRICHABLE_FIELDS,
@@ -25,6 +38,7 @@ import {
   rankCandidates,
   type EnrichableField,
   type EnrichmentFields,
+  type LocalTitleFacts,
   type MatchConfidence,
 } from "@/lib/tmdb/match"
 
@@ -34,18 +48,47 @@ export interface EnrichResult<T> {
   error?: string
 }
 
-export interface TmdbCandidate {
+/** Metadata providers Vision can enrich from. Either, both or neither may be configured. */
+export type EnrichSource = "tmdb" | "omdb"
+
+/**
+ * Which provider record a preview/apply refers to. Discriminated so the two
+ * id shapes (numeric TMDB movie id vs. string IMDb id) never get confused.
+ */
+export type EnrichSourceRef =
+  | { source: "tmdb"; tmdbId: number }
+  | { source: "omdb"; imdbId: string }
+
+export interface MetadataCandidate {
+  source: EnrichSource
+  /** TMDB movie id — 0 for OMDb candidates. */
   tmdbId: number
+  /** IMDb id — "" for TMDB candidates. */
+  imdbId: string
   title: string
   originalTitle: string
   year: number | null
   overview: string
-  /** w185 thumbnail for the picker; "" when TMDB has no poster. */
+  /** Small poster thumbnail for the picker; "" when the provider has none. */
   posterThumbUrl: string
   confidence: MatchConfidence
   /** Blended 0..1 match score — shown so admins can sanity-check the ranking. */
   score: number
   voteCount: number
+  /** "movie" / "series" when the provider says so (OMDb does), else "". */
+  mediaType: string
+}
+
+/** Back-compat alias for the pre-OMDb name. */
+export type TmdbCandidate = MetadataCandidate
+
+export interface EnrichmentPreview {
+  source: EnrichSource
+  tmdbId: number | null
+  imdbId: string | null
+  incoming: EnrichmentFields
+  /** Fields this provider can never supply (OMDb: backdropUrl, tagline). */
+  unavailableFields: EnrichableField[]
 }
 
 export interface TmdbEnrichmentPreview {
@@ -54,127 +97,144 @@ export interface TmdbEnrichmentPreview {
 }
 
 const MAX_CANDIDATES = 8
+const MAX_CAST_NAMES = 8
+const NO_PROVIDER_CONFIGURED_MESSAGE = "TMDB_API_KEY or OMDB_API_KEY not configured"
+
+const sourceRefSchema = z.discriminatedUnion("source", [
+  z.object({ source: z.literal("tmdb"), tmdbId: z.number().int().positive() }),
+  z.object({ source: z.literal("omdb"), imdbId: z.string().regex(/^tt\d{6,10}$/i) }),
+])
+
+// ── Provider-agnostic actions ────────────────────────────────────────────────
 
 /**
- * Search TMDB for candidate matches for an existing catalog title.
- * Never applies anything — returns ranked candidates with confidence so the
- * admin can pick (low-confidence matches must always go through a human).
+ * Search a metadata provider for candidate matches for an existing catalog
+ * title. Never applies anything — returns ranked candidates with confidence so
+ * the admin can pick (low-confidence matches must always go through a human).
+ *
+ * `opts.source` picks the provider; omitted it defaults to TMDB when
+ * configured, otherwise OMDb.
  */
-export async function searchTmdbForTitle(
+export async function searchMetadataForTitle(
   titleId: string,
-): Promise<EnrichResult<{ candidates: TmdbCandidate[]; query: string }>> {
+  opts?: { source?: EnrichSource },
+): Promise<
+  EnrichResult<{
+    candidates: MetadataCandidate[]
+    query: string
+    source: EnrichSource
+    availableSources: EnrichSource[]
+  }>
+> {
   try {
     await requireAdminUser()
-    if (!isTmdbConfigured()) return { success: false, error: TMDB_NOT_CONFIGURED_MESSAGE }
 
     const parsed = z.string().min(1).parse(titleId)
+    const requested = z.enum(["tmdb", "omdb"]).optional().parse(opts?.source)
+    const resolved = resolveSource(requested)
+    if (!resolved.source) return { success: false, error: resolved.error }
+
     await connectDB()
     const title = await VisionTitle.findById(parsed)
     if (!title) return { success: false, error: "Title not found" }
 
-    let response = await searchMovies(title.title, title.releaseYear)
-    if (response.results.length === 0 && title.releaseYear) {
-      // Hand-entered years are often off — retry the search without it.
-      response = await searchMovies(title.title)
+    const local: LocalTitleFacts = { title: title.title, releaseYear: title.releaseYear }
+    const candidates =
+      resolved.source === "tmdb"
+        ? await searchTmdbCandidates(local)
+        : await searchOmdbCandidates(local)
+
+    return {
+      success: true,
+      data: {
+        candidates,
+        query: title.title,
+        source: resolved.source,
+        availableSources: availableSources(),
+      },
     }
-
-    const ranked = rankCandidates(
-      { title: title.title, releaseYear: title.releaseYear },
-      response.results.map((movie) => ({
-        id: movie.id,
-        title: movie.title,
-        originalTitle: movie.original_title,
-        releaseDate: movie.release_date,
-        popularity: movie.popularity,
-        voteCount: movie.vote_count,
-        overview: movie.overview,
-        posterPath: movie.poster_path,
-      })),
-    )
-
-    const candidates = ranked.slice(0, MAX_CANDIDATES).map((entry) => ({
-      tmdbId: entry.candidate.id,
-      title: entry.candidate.title,
-      originalTitle: entry.candidate.originalTitle ?? "",
-      year: entry.candidate.releaseDate
-        ? Number.parseInt(entry.candidate.releaseDate.slice(0, 4), 10) || null
-        : null,
-      overview: entry.candidate.overview ?? "",
-      posterThumbUrl: tmdbImageUrl(entry.candidate.posterPath, "w185"),
-      confidence: entry.confidence,
-      score: Math.round(entry.score * 100) / 100,
-      voteCount: entry.candidate.voteCount ?? 0,
-    }))
-
-    return { success: true, data: { candidates, query: title.title } }
   } catch (error) {
     return errorResult(error)
   }
 }
 
 /**
- * Build the incoming field set for one TMDB movie so the admin UI can render
- * a side-by-side current-vs-incoming diff before anything is written.
+ * Build the incoming field set for one provider record so the admin UI can
+ * render a side-by-side current-vs-incoming diff before anything is written.
  */
-export async function getTmdbEnrichmentPreview(
+export async function getEnrichmentPreview(
   titleId: string,
-  tmdbId: number,
-): Promise<EnrichResult<TmdbEnrichmentPreview>> {
+  ref: EnrichSourceRef,
+): Promise<EnrichResult<EnrichmentPreview>> {
   try {
     await requireAdminUser()
-    if (!isTmdbConfigured()) return { success: false, error: TMDB_NOT_CONFIGURED_MESSAGE }
 
     z.string().min(1).parse(titleId)
-    const movieId = z.number().int().positive().parse(tmdbId)
+    const parsedRef = sourceRefSchema.parse(ref)
+    const resolved = resolveSource(parsedRef.source)
+    if (!resolved.source) return { success: false, error: resolved.error }
 
-    const incoming = await buildIncomingEnrichment(movieId)
-    return { success: true, data: { tmdbId: movieId, incoming } }
+    const incoming = await buildIncomingEnrichment(parsedRef)
+    return {
+      success: true,
+      data: {
+        source: parsedRef.source,
+        tmdbId: parsedRef.source === "tmdb" ? parsedRef.tmdbId : null,
+        imdbId: parsedRef.source === "omdb" ? parsedRef.imdbId : null,
+        incoming,
+        unavailableFields: unavailableFieldsFor(parsedRef.source),
+      },
+    }
   } catch (error) {
     return errorResult(error)
   }
 }
 
 /**
- * Apply a chosen TMDB match to a title. `fields` picks exactly which fields
- * get overwritten — hand-written copy is never clobbered silently. Empty
- * incoming values are skipped even when selected, so enrichment can only add,
- * never blank out. Always records `tmdbId` for idempotency.
+ * Apply a chosen provider match to a title. `fields` picks exactly which
+ * fields get overwritten — hand-written copy is never clobbered silently.
+ * Empty incoming values are skipped even when selected, so enrichment can only
+ * add, never blank out. Always records `tmdbId` or `imdbId` for idempotency.
  */
-export async function applyTmdbEnrichment(
+export async function applyEnrichment(
   titleId: string,
-  tmdbId: number,
+  ref: EnrichSourceRef,
   fields: EnrichableField[],
 ): Promise<EnrichResult<CatalogTitle>> {
   try {
     await requireAdminUser()
-    if (!isTmdbConfigured()) return { success: false, error: TMDB_NOT_CONFIGURED_MESSAGE }
 
     const parsed = z
       .object({
         titleId: z.string().min(1),
-        tmdbId: z.number().int().positive(),
+        ref: sourceRefSchema,
         fields: z.array(z.enum(ENRICHABLE_FIELDS)),
       })
-      .parse({ titleId, tmdbId, fields })
+      .parse({ titleId, ref, fields })
+
+    const resolved = resolveSource(parsed.ref.source)
+    if (!resolved.source) return { success: false, error: resolved.error }
 
     await connectDB()
     const doc = await VisionTitle.findById(parsed.titleId)
     if (!doc) return { success: false, error: "Title not found" }
 
-    const conflict = await VisionTitle.findOne({
-      tmdbId: parsed.tmdbId,
-      _id: { $ne: doc._id },
-    })
+    const linkQuery =
+      parsed.ref.source === "tmdb"
+        ? { tmdbId: parsed.ref.tmdbId }
+        : { imdbId: parsed.ref.imdbId }
+    const conflict = await VisionTitle.findOne({ ...linkQuery, _id: { $ne: doc._id } })
     if (conflict) {
+      const label = parsed.ref.source === "tmdb" ? "TMDB movie" : "IMDb entry"
       return {
         success: false,
-        error: `Another title (“${conflict.title}”) is already linked to this TMDB movie`,
+        error: `Another title (“${conflict.title}”) is already linked to this ${label}`,
       }
     }
 
-    const incoming = await buildIncomingEnrichment(parsed.tmdbId)
+    const incoming = await buildIncomingEnrichment(parsed.ref)
 
-    const update: Record<string, unknown> = { tmdbId: parsed.tmdbId }
+    const update: Record<string, unknown> = { ...linkQuery }
     for (const field of parsed.fields) {
       const value = incoming[field]
       if (isEmptyIncoming(value)) continue
@@ -191,11 +251,7 @@ export async function applyTmdbEnrichment(
       director: pick(update, "director", doc.director),
     })
 
-    const saved = await VisionTitle.findByIdAndUpdate(
-      doc._id,
-      { $set: update },
-      { new: true },
-    )
+    const saved = await VisionTitle.findByIdAndUpdate(doc._id, { $set: update }, { new: true })
     if (!saved) return { success: false, error: "Title not found" }
 
     revalidatePath("/admin/catalog")
@@ -208,19 +264,147 @@ export async function applyTmdbEnrichment(
   }
 }
 
-// ── Internals ────────────────────────────────────────────────────────────────
+// ── TMDB-named wrappers (kept so existing callers keep working) ─────────────
 
-const MAX_CAST_NAMES = 8
+export async function searchTmdbForTitle(
+  titleId: string,
+): Promise<EnrichResult<{ candidates: TmdbCandidate[]; query: string }>> {
+  const result = await searchMetadataForTitle(titleId, { source: "tmdb" })
+  if (!result.success || !result.data) return { success: false, error: result.error }
+  return { success: true, data: { candidates: result.data.candidates, query: result.data.query } }
+}
 
-async function buildIncomingEnrichment(tmdbId: number): Promise<EnrichmentFields> {
+export async function getTmdbEnrichmentPreview(
+  titleId: string,
+  tmdbId: number,
+): Promise<EnrichResult<TmdbEnrichmentPreview>> {
+  const result = await getEnrichmentPreview(titleId, { source: "tmdb", tmdbId })
+  if (!result.success || !result.data) return { success: false, error: result.error }
+  return { success: true, data: { tmdbId, incoming: result.data.incoming } }
+}
+
+export async function applyTmdbEnrichment(
+  titleId: string,
+  tmdbId: number,
+  fields: EnrichableField[],
+): Promise<EnrichResult<CatalogTitle>> {
+  return applyEnrichment(titleId, { source: "tmdb", tmdbId }, fields)
+}
+
+// ── Provider selection ───────────────────────────────────────────────────────
+
+function availableSources(): EnrichSource[] {
+  const sources: EnrichSource[] = []
+  if (isTmdbConfigured()) sources.push("tmdb")
+  if (isOmdbConfigured()) sources.push("omdb")
+  return sources
+}
+
+type SourceResolution =
+  | { source: EnrichSource; error?: undefined }
+  | { source?: undefined; error: string }
+
+/** TMDB wins by default when configured (richer payload); OMDb is the fallback. */
+function resolveSource(requested?: EnrichSource | null): SourceResolution {
+  const available = availableSources()
+  if (requested) {
+    if (available.includes(requested)) return { source: requested }
+    return {
+      error: requested === "tmdb" ? TMDB_NOT_CONFIGURED_MESSAGE : OMDB_NOT_CONFIGURED_MESSAGE,
+    }
+  }
+  const [preferred] = available
+  if (!preferred) return { error: NO_PROVIDER_CONFIGURED_MESSAGE }
+  return { source: preferred }
+}
+
+function unavailableFieldsFor(source: EnrichSource): EnrichableField[] {
+  return source === "omdb" ? [...OMDB_UNAVAILABLE_FIELDS] : []
+}
+
+// ── Candidate search per provider ────────────────────────────────────────────
+
+async function searchTmdbCandidates(local: LocalTitleFacts): Promise<MetadataCandidate[]> {
+  let response = await searchTmdbMovies(local.title, local.releaseYear)
+  if (response.results.length === 0 && local.releaseYear) {
+    // Hand-entered years are often off — retry the search without it.
+    response = await searchTmdbMovies(local.title)
+  }
+
+  const ranked = rankCandidates(
+    local,
+    response.results.map((movie) => ({
+      id: movie.id,
+      title: movie.title,
+      originalTitle: movie.original_title,
+      releaseDate: movie.release_date,
+      popularity: movie.popularity,
+      voteCount: movie.vote_count,
+      overview: movie.overview,
+      posterPath: movie.poster_path,
+    })),
+  )
+
+  return ranked.slice(0, MAX_CANDIDATES).map((entry) => ({
+    source: "tmdb" as const,
+    tmdbId: entry.candidate.id,
+    imdbId: "",
+    title: entry.candidate.title,
+    originalTitle: entry.candidate.originalTitle ?? "",
+    year: entry.candidate.releaseDate
+      ? Number.parseInt(entry.candidate.releaseDate.slice(0, 4), 10) || null
+      : null,
+    overview: entry.candidate.overview ?? "",
+    posterThumbUrl: tmdbImageUrl(entry.candidate.posterPath, "w185"),
+    confidence: entry.confidence,
+    score: Math.round(entry.score * 100) / 100,
+    voteCount: entry.candidate.voteCount ?? 0,
+    mediaType: "movie",
+  }))
+}
+
+async function searchOmdbCandidates(local: LocalTitleFacts): Promise<MetadataCandidate[]> {
+  let response = await searchOmdbTitles(local.title, local.releaseYear)
+  if (response.Search.length === 0 && local.releaseYear) {
+    response = await searchOmdbTitles(local.title)
+  }
+
+  const ranked = rankOmdbCandidates(local, response.Search)
+
+  return ranked.slice(0, MAX_CANDIDATES).map((entry) => ({
+    source: "omdb" as const,
+    tmdbId: 0,
+    imdbId: entry.candidate.imdbId,
+    title: entry.candidate.title,
+    originalTitle: "",
+    year: entry.candidate.year,
+    // OMDb search rows carry no plot — the preview fetch fills it in.
+    overview: "",
+    posterThumbUrl: entry.candidate.posterUrl,
+    confidence: entry.confidence,
+    score: Math.round(entry.score * 100) / 100,
+    voteCount: 0,
+    mediaType: entry.candidate.mediaType,
+  }))
+}
+
+// ── Incoming field builders ──────────────────────────────────────────────────
+
+async function buildIncomingEnrichment(ref: EnrichSourceRef): Promise<EnrichmentFields> {
+  if (ref.source === "omdb") {
+    return mapOmdbDetailToEnrichment(await getByImdbId(ref.imdbId))
+  }
+  return buildTmdbEnrichment(ref.tmdbId)
+}
+
+async function buildTmdbEnrichment(tmdbId: number): Promise<EnrichmentFields> {
   const [details, credits, releaseDates] = await Promise.all([
     getMovieDetails(tmdbId),
     getMovieCredits(tmdbId),
     getMovieReleaseDates(tmdbId),
   ])
 
-  const director =
-    credits.crew.find((member) => member.job === "Director")?.name ?? ""
+  const director = credits.crew.find((member) => member.job === "Director")?.name ?? ""
   const cast = [...credits.cast]
     .sort((a, b) => a.order - b.order)
     .slice(0, MAX_CAST_NAMES)
@@ -241,6 +425,8 @@ async function buildIncomingEnrichment(tmdbId: number): Promise<EnrichmentFields
       : null,
   }
 }
+
+// ── Internals ────────────────────────────────────────────────────────────────
 
 function isEmptyIncoming(value: unknown): boolean {
   if (value === null || value === undefined) return true
@@ -282,6 +468,12 @@ function buildSearchTerms(input: {
 function errorResult<T>(error: unknown): EnrichResult<T> {
   if (error instanceof TmdbNotConfiguredError) {
     return { success: false, error: TMDB_NOT_CONFIGURED_MESSAGE }
+  }
+  if (error instanceof OmdbNotConfiguredError) {
+    return { success: false, error: OMDB_NOT_CONFIGURED_MESSAGE }
+  }
+  if (error instanceof OmdbApiError) {
+    return { success: false, error: `OMDb: ${error.omdbError}` }
   }
   if (error instanceof z.ZodError) {
     return { success: false, error: error.errors.map((e) => e.message).join(", ") }

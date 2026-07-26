@@ -34,6 +34,7 @@ export function serializeTitle(doc: IVisionTitle): CatalogTitle {
     createdAt: dateString(obj.createdAt),
     updatedAt: dateString(obj.updatedAt),
     tmdbId: numNullable(obj.tmdbId),
+    imdbId: nullable(obj.imdbId),
     kind: obj.kind === "series" || seriesGenre ? "series" : "movie",
     previewClipUrl: nullable(obj.previewClipUrl),
     badge: nullable(obj.badge) as TitleBadge | null,

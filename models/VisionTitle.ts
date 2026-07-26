@@ -31,6 +31,8 @@ export interface IVisionTitle extends Document {
   weight: number
   /** TMDB movie id once metadata enrichment has been applied. */
   tmdbId?: number | null
+  /** IMDb id ("tt3896198") once OMDb metadata enrichment has been applied. */
+  imdbId?: string | null
   createdAt: Date
   updatedAt: Date
 }
@@ -71,6 +73,8 @@ const VisionTitleSchema = new Schema<IVisionTitle>(
     // No default on purpose: unenriched docs must lack the path entirely so the
     // sparse unique index below skips them (a `null` default would collide).
     tmdbId: { type: Number },
+    // Same deal for the OMDb/IMDb link — no default, sparse unique index.
+    imdbId: { type: String },
   },
   { timestamps: true, collection: "vision_titles" },
 )
@@ -78,6 +82,7 @@ const VisionTitleSchema = new Schema<IVisionTitle>(
 VisionTitleSchema.index({ title: "text", synopsis: "text", searchTerms: "text" })
 VisionTitleSchema.index({ status: 1, publishAt: 1 })
 VisionTitleSchema.index({ tmdbId: 1 }, { unique: true, sparse: true })
+VisionTitleSchema.index({ imdbId: 1 }, { unique: true, sparse: true })
 
 const VisionTitle: Model<IVisionTitle> =
   (mongoose.models.VisionTitle as Model<IVisionTitle>) ??
