@@ -1,27 +1,13 @@
 "use client"
 
 import * as React from "react"
-import { usePathname } from "next/navigation"
 
-import { ViewerProfilesProvider, useViewerProfiles } from "@/lib/profiles/store"
-import { ProfilePicker } from "@/components/profiles/profile-picker"
+import { ViewerProfilesProvider } from "@/lib/profiles/store"
 
-const HIDE_ON_PATHS = ["/login", "/register", "/invite", "/admin", "/watch"]
-
+// The "Who's watching?" picker was removed — users go straight to the home
+// page. This now only mounts the profiles provider (My List and watch-progress
+// are still keyed on the active profile, which the store auto-selects); the
+// picker itself lives in settings for anyone who wants to switch or add one.
 export function ProfilePickerGate({ children }: { children: React.ReactNode }) {
-  return (
-    <ViewerProfilesProvider>
-      <Inner>{children}</Inner>
-    </ViewerProfilesProvider>
-  )
-}
-
-function Inner({ children }: { children: React.ReactNode }) {
-  const { hasChosen } = useViewerProfiles()
-  const pathname = usePathname()
-  const skip = HIDE_ON_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))
-
-  if (skip) return <>{children}</>
-  if (hasChosen) return <>{children}</>
-  return <ProfilePicker />
+  return <ViewerProfilesProvider>{children}</ViewerProfilesProvider>
 }

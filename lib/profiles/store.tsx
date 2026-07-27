@@ -69,6 +69,18 @@ export function ViewerProfilesProvider({ children }: { children: React.ReactNode
     return () => window.clearTimeout(id)
   }, [])
 
+  // Skip the "Who's watching?" picker entirely — the moment profiles are known
+  // and nothing is active, auto-select the first one so the user lands straight
+  // on the home page. Profiles still exist under the hood (My List and
+  // watch-progress are keyed on the active profileId); we just don't gate on the
+  // choice. The manual picker in settings still lets people switch/add.
+  React.useEffect(() => {
+    if (!hydrated) return
+    if (activeProfileId === null && profiles.length > 0) {
+      setActiveProfileId(profiles[0]!.id)
+    }
+  }, [hydrated, activeProfileId, profiles])
+
   // Step 2: pull the canonical list from the database.
   // For a brand-new account (0 viewer profiles), seed exactly one profile
   // using the account holder's real name + Clerk avatar so it matches their
