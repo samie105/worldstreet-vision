@@ -198,13 +198,13 @@ export function SearchPalette({ className, navOnDark = false }: SearchPalettePro
                         onClick={() => setOpen(false)}
                         className="flex items-center gap-3 px-3 py-2 hover:bg-accent/50"
                       >
-                        <div className="relative h-12 w-20 shrink-0 overflow-hidden rounded-md bg-muted">
-                          {title.backdropUrl ? (
+                        <div className="relative h-14 w-[38px] shrink-0 overflow-hidden rounded bg-muted">
+                          {title.posterUrl || title.backdropUrl ? (
                             <Image
-                              src={title.backdropUrl}
+                              src={title.posterUrl || title.backdropUrl}
                               alt=""
                               fill
-                              sizes="80px"
+                              sizes="38px"
                               className="object-cover"
                               unoptimized
                             />

@@ -41,6 +41,20 @@ interface ListTitlesOptions {
   skip?: number
 }
 
+/**
+ * True once the catalogue holds anything at all. Distinguishes "this query
+ * matched nothing" (answer honestly with an empty shelf) from "nothing has
+ * ever been seeded" (the demo content is genuinely useful). Cheap — counts
+ * with a limit of 1 — and the result is stable for the life of a request.
+ */
+async function hasCatalogue(): Promise<boolean> {
+  try {
+    return (await VisionTitle.countDocuments({}, { limit: 1 })) > 0
+  } catch {
+    return false
+  }
+}
+
 export async function listTitles(options: ListTitlesOptions = {}): Promise<CatalogTitle[]> {
   const kidProfile = await isKidProfileActive()
   try {
@@ -72,7 +86,13 @@ export async function listTitles(options: ListTitlesOptions = {}): Promise<Catal
   const titles = docs.map(serializeTitle)
   // The post-filter also covers the mock fallback and any rows that slipped
   // past the `$in` (e.g. non-lowercase legacy ratings) — fail closed.
-  return applyKidFilter(titles.length > 0 ? titles : filterMockTitles(options), kidProfile)
+  if (titles.length > 0) return applyKidFilter(titles, kidProfile)
+  // "No matches" is a legitimate answer once a real catalogue exists, and
+  // standing in demo titles here actively lies: a genre rail pointed at a
+  // genre nothing carries used to fill itself with invented films and stock
+  // photography. Only substitute when the collection itself is empty — a
+  // fresh clone with no seed — which is the case the fallback was for.
+  return applyKidFilter(await hasCatalogue() ? [] : filterMockTitles(options), kidProfile)
 }
 
 /** Titles that share genres with the current title, excluding it, for detail rails. */
@@ -168,7 +188,10 @@ export async function buildHomeRails(authUserId: string | null): Promise<RailWit
     return applyKidFilterToRails(buildMockRails(), kidProfile)
   }
   const rails = await listActiveRails()
-  if (rails.every((rail) => rail._id.startsWith("demo-rail-"))) {
+  // `[].every()` is vacuously true, so an empty rail set used to fall through
+  // to the demo home page. Require at least one rail before deciding they are
+  // all demo ones.
+  if (rails.length > 0 && rails.every((rail) => rail._id.startsWith("demo-rail-"))) {
     return applyKidFilterToRails(buildMockRails(), kidProfile)
   }
 
@@ -259,6 +282,11 @@ export async function listContinueWatching(
   })
 
   if (progress.length === 0) {
+    // A viewer who hasn't started anything has an empty Continue watching —
+    // that is the truth, and inventing rows put stock photography back on the
+    // home page long after the catalogue became real. Demo rows only when the
+    // catalogue itself was never seeded.
+    if (await hasCatalogue()) return []
     return applyKidFilterToContinue(mockContinueWatching(limit), kidProfile)
   }
 

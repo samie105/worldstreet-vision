@@ -6,7 +6,7 @@ test.beforeEach(async ({ context }) => {
   await selectDefaultViewerProfile(context)
 })
 
-test("home page renders hero, top nav, and at least one rail of landscape cards", async ({
+test("home page renders hero, top nav, and at least one rail of portrait poster cards", async ({
   page,
 }) => {
   await page.goto("/")
@@ -24,8 +24,11 @@ test("home page renders hero, top nav, and at least one rail of landscape cards"
 
   const firstCardBox = await cards.first().boundingBox()
   if (firstCardBox) {
-    // Cards should be landscape — wider than they are tall
-    expect(firstCardBox.width).toBeGreaterThan(firstCardBox.height)
+    // Cards are Netflix-style portrait posters — taller than they are wide, ~2:3
+    expect(firstCardBox.height).toBeGreaterThan(firstCardBox.width)
+    const ratio = firstCardBox.width / firstCardBox.height
+    expect(ratio).toBeGreaterThan(0.55)
+    expect(ratio).toBeLessThan(0.8)
   }
 })
 

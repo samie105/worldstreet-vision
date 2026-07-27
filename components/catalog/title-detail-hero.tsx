@@ -83,6 +83,8 @@ export function TitleDetailHero({
 
   const movieLockMobile = title.kind === "movie"
 
+  const art = title.posterUrl || title.backdropUrl
+
   return (
     <>
       <section
@@ -97,31 +99,50 @@ export function TitleDetailHero({
       >
         <div
           className={cn(
-            "relative min-h-0 w-full",
+            "relative min-h-0 w-full overflow-hidden",
             movieLockMobile ? "max-md:h-full md:min-h-dvh" : "min-h-dvh",
           )}
         >
-          {title.backdropUrl ? (
-            <Image
-              src={title.backdropUrl}
-              alt=""
-              fill
-              priority
-              className="object-cover"
-              sizes="100vw"
-              unoptimized
-            />
+          {art ? (
+            <>
+              {/* Blurred, over-scaled copy of the 2:3 poster fills the stage so
+                  the sharp poster never has to be cropped or stretched. */}
+              <Image
+                src={art}
+                alt=""
+                fill
+                priority
+                className="scale-125 object-cover opacity-60 blur-2xl saturate-150"
+                sizes="100vw"
+                unoptimized
+              />
+              {/* Anchored to the top-right so it clears the rating column and
+                  the "More like this" strip, both of which sit low. */}
+              <div className="absolute inset-0 flex items-start justify-center pt-16 md:justify-end md:pr-[6%] md:pt-20">
+                <div className="relative aspect-[2/3] h-[36%] max-w-[52vw] overflow-hidden rounded-xl shadow-[0_40px_110px_-30px_rgba(0,0,0,0.95)] ring-1 ring-white/12 md:h-[40%] md:max-w-none">
+                  <Image
+                    src={art}
+                    alt={title.title}
+                    fill
+                    priority
+                    sizes="(max-width: 768px) 52vw, 22vw"
+                    className="object-cover"
+                    unoptimized
+                  />
+                </div>
+              </div>
+            </>
           ) : (
             <div className="absolute inset-0 vision-stage" aria-hidden />
           )}
 
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.76)_0%,rgba(0,0,0,0.42)_45%,rgba(0,0,0,0)_78%)]"
+            className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.8)_0%,rgba(0,0,0,0.46)_40%,rgba(0,0,0,0.1)_66%,rgba(0,0,0,0)_86%)]"
           />
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.22)_0%,transparent_32%,rgba(0,0,0,0.55)_72%,rgba(0,0,0,0.94)_100%)]"
+            className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.28)_0%,rgba(0,0,0,0.06)_24%,rgba(0,0,0,0.7)_58%,rgba(0,0,0,0.95)_100%)] md:bg-[linear-gradient(180deg,rgba(0,0,0,0.22)_0%,transparent_32%,rgba(0,0,0,0.5)_70%,rgba(0,0,0,0.94)_100%)]"
           />
 
           <div
@@ -464,31 +485,31 @@ function TitleHeroRelatedStrip({ related }: { related: CatalogTitle[] }) {
 
 function MiniRelatedCard({ item }: { item: CatalogTitle }) {
   const href = item.mainAssetId ? `/watch/${item.mainAssetId}` : `/title/${item.slug}`
-  const art = item.backdropUrl || item.posterUrl
+  const art = item.posterUrl || item.backdropUrl
   return (
     <Link
       href={href}
       prefetch
-      className="group flex w-[min(88vw,420px)] shrink-0 snap-start flex-col gap-2 max-md:w-[min(138px,32vw)] max-md:gap-0.5 sm:w-[min(56vw,380px)] md:w-[400px] lg:w-[min(28vw,460px)]"
+      className="group flex w-[86px] shrink-0 snap-start flex-col sm:w-[100px] md:w-[118px] lg:w-[128px]"
       data-testid="title-related-card"
+      aria-label={item.title}
     >
-      <div className="relative aspect-video w-full overflow-hidden rounded-2xl shadow-[0_24px_56px_-18px_rgba(0,0,0,0.75)] transition-transform duration-500 ease-out group-hover:scale-[1.015] max-md:rounded-md max-md:shadow-[0_10px_24px_-10px_rgba(0,0,0,0.65)]">
+      <div className="relative aspect-[2/3] w-full overflow-hidden rounded-lg shadow-[0_18px_40px_-16px_rgba(0,0,0,0.75)] ring-1 ring-white/10 transition-transform duration-500 ease-out group-hover:scale-[1.035] md:rounded-xl">
         {art ? (
           <Image
             src={art}
             alt=""
             fill
             className="object-cover"
-            sizes="(max-width: 640px) 160px, (max-width: 1280px) 400px, 460px"
+            sizes="(max-width: 640px) 86px, (max-width: 1024px) 118px, 128px"
             unoptimized
           />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center text-sm text-white/35 max-md:text-[10px]">WS</div>
         )}
       </div>
-      <p className="line-clamp-2 text-base font-normal leading-snug text-white/68 max-md:line-clamp-1 max-md:text-[11px] max-md:leading-snug md:text-[17px]">
-        {item.title}
-      </p>
+      {/* Poster carries the name — caption kept for assistive tech only. */}
+      <span className="sr-only">{item.title}</span>
     </Link>
   )
 }

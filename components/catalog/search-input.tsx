@@ -162,7 +162,7 @@ export function SearchInput({
 
         <motion.div
           layout
-          className="grid grid-cols-1 gap-6 sm:grid-cols-2 sm:gap-6 md:gap-7 lg:grid-cols-2 xl:grid-cols-3"
+          className="grid grid-cols-3 gap-x-2.5 gap-y-4 sm:grid-cols-4 sm:gap-x-3 sm:gap-y-5 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8"
         >
           <AnimatePresence initial={false}>
             {results.map((title) => (

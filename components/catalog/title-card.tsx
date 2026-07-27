@@ -73,6 +73,20 @@ export function TitleCard({
 
   const goToDetail = () => router.push(detailHref)
 
+  // Real catalog art is a 2:3 IMDb poster. `backdropUrl` is only a fallback —
+  // OMDb ships no landscape art, so it usually holds the same portrait image.
+  const art = title.posterUrl || title.backdropUrl
+
+  const meta = [
+    title.releaseYear ? String(title.releaseYear) : null,
+    title.kind === "series" ? "Series" : "Movie",
+    title.kind === "movie" && title.durationSeconds > 0
+      ? formatDuration(title.durationSeconds)
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ")
+
   return (
     <div
       onMouseEnter={onEnter}
@@ -82,11 +96,12 @@ export function TitleCard({
       onClick={goToDetail}
       role="button"
       tabIndex={0}
+      aria-label={`${title.title} — ${meta}`}
       onKeyDown={(e) => {
         if (e.key === "Enter") goToDetail()
       }}
       className={cn(
-        "group relative aspect-video w-full shrink-0 cursor-pointer overflow-visible rounded-xl bg-card",
+        "group relative aspect-[2/3] w-full shrink-0 cursor-pointer overflow-visible rounded-lg bg-card",
         "ring-1 ring-border/25 shadow-[0_10px_28px_-10px_rgba(0,0,0,0.42)]",
         "hover:ring-white/20 hover:shadow-[0_22px_48px_-14px_rgba(0,0,0,0.5)]",
         "dark:hover:shadow-[0_28px_64px_-16px_rgba(0,0,0,0.72)]",
@@ -95,79 +110,70 @@ export function TitleCard({
       data-testid="title-card"
       data-slug={title.slug}
     >
+      {/* Name stays in the DOM for assistive tech and the smoke suite, but the
+          poster already carries it — the owner asked for no caption. */}
+      <span className="sr-only" data-testid="title-name">
+        {title.title}
+      </span>
+
       <div className="relative h-full w-full overflow-hidden rounded-[inherit]">
         {rank !== undefined ? (
           <span
             aria-hidden
-            className="pointer-events-none absolute -left-3 top-1/2 z-10 -translate-y-1/2 select-none font-extrabold leading-none text-foreground/15 mix-blend-overlay"
-            style={{ fontSize: "min(140px, 80%)" }}
+            className="pointer-events-none absolute bottom-0 left-0.5 z-10 select-none font-extrabold leading-none text-foreground/15 mix-blend-overlay"
+            style={{ fontSize: "clamp(2.5rem, 6vw, 5rem)" }}
           >
             {rank}
           </span>
         ) : null}
 
         <div className="absolute inset-0 overflow-hidden rounded-[inherit]">
-          {title.backdropUrl ? (
+          {art ? (
             <Image
-              src={title.backdropUrl}
+              src={art}
               alt=""
               fill
-              sizes="(max-width: 640px) 75vw, (max-width: 1024px) 46vw, (max-width: 1536px) 32vw, 28vw"
-              className="object-cover transition-[transform,filter] duration-[480ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:brightness-[1.04] group-hover:scale-[1.08]"
+              sizes="(max-width: 640px) 33vw, (max-width: 768px) 24vw, (max-width: 1024px) 20vw, (max-width: 1280px) 17vw, (max-width: 1536px) 14vw, 13vw"
+              className="object-cover transition-[transform,filter] duration-[480ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:brightness-[1.06] group-hover:scale-[1.06]"
               unoptimized
             />
           ) : (
-            <div className="absolute inset-0 flex items-center justify-center bg-muted text-xs text-muted-foreground">
-              No artwork
+            <div className="absolute inset-0 flex items-center justify-center bg-muted px-2 text-center text-[11px] leading-tight text-muted-foreground">
+              {title.title}
             </div>
           )}
         </div>
 
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/88 via-black/35 to-black/0 transition-opacity duration-[480ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:from-black/80 group-hover:via-black/28" />
+        {/* Light top-and-tail scrim so the chips stay legible on bright posters. */}
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.42)_0%,rgba(0,0,0,0)_22%,rgba(0,0,0,0)_66%,rgba(0,0,0,0.52)_100%)] opacity-90 transition-opacity duration-[480ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:opacity-70" />
 
-        <div className="absolute inset-x-2.5 top-2.5 flex items-start justify-between gap-1.5">
-          {title.badge ? (
+        {title.badge ? (
+          <div className="absolute inset-x-1.5 top-1.5 flex">
             <Badge
               className={cn(
-                "rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide shadow-sm",
+                "max-w-full truncate rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide shadow-sm",
                 BADGE_TONE[title.badge],
               )}
             >
               {BADGE_COPY[title.badge]}
             </Badge>
-          ) : (
-            <span />
-          )}
-          <Badge
-            variant="muted"
-            className="bg-black/55 text-[10px] text-white backdrop-blur"
-          >
-            {title.maturityRating.toUpperCase()}
-          </Badge>
-        </div>
-
-        <div className="absolute inset-x-3 bottom-3 z-[2] flex flex-col gap-1.5 text-white">
-          <p
-            className="text-sm font-semibold leading-snug md:text-base"
-            style={{ overflowWrap: "anywhere" }}
-          >
-            {title.title}
-          </p>
-          <div className="flex items-center gap-1.5 text-[11px] text-white/85 md:text-xs">
-            <span>{title.releaseYear}</span>
-            <span aria-hidden>·</span>
-            <span className="capitalize">{title.kind}</span>
-            {title.kind === "movie" && title.durationSeconds > 0 ? (
-              <>
-                <span aria-hidden>·</span>
-                <span>{formatDuration(title.durationSeconds)}</span>
-              </>
-            ) : null}
           </div>
-        </div>
+        ) : null}
+
+        {/* Maturity moves to the foot of the poster — a portrait frame is too
+            narrow to carry two chips on one line. */}
+        <Badge
+          variant="muted"
+          className={cn(
+            "absolute right-1.5 bg-black/55 px-1.5 py-0.5 text-[9px] text-white backdrop-blur",
+            progress !== undefined ? "bottom-2.5" : "bottom-1.5",
+          )}
+        >
+          {title.maturityRating.toUpperCase()}
+        </Badge>
 
         {progress !== undefined ? (
-          <div className="absolute inset-x-2 bottom-2 z-[3] h-1 overflow-hidden rounded-full bg-white/20">
+          <div className="absolute inset-x-0 bottom-0 z-[3] h-[3px] overflow-hidden bg-white/20">
             <div
               className="h-full bg-primary"
               style={{ width: `${Math.min(100, Math.max(0, progress * 100))}%` }}
@@ -176,7 +182,7 @@ export function TitleCard({
         ) : null}
 
         {expandable && previewReady && title.previewClipUrl ? (
-          <PreviewClip src={title.previewClipUrl} poster={title.backdropUrl} active muted />
+          <PreviewClip src={title.previewClipUrl} poster={art} active muted />
         ) : null}
       </div>
     </div>

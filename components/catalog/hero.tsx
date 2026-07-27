@@ -31,6 +31,8 @@ export function Hero({ title, resumeSeconds = 0 }: HeroProps) {
     resumeSeconds > 5 ? `?t=${Math.floor(resumeSeconds)}` : ""
   }`
 
+  const art = title.posterUrl || title.backdropUrl
+
   return (
     <section
       data-testid="hero"
@@ -39,17 +41,34 @@ export function Hero({ title, resumeSeconds = 0 }: HeroProps) {
         "vision-hero",
       )}
     >
-      <div className="relative h-[82vh] min-h-[560px] max-h-[860px] w-full">
-        {title.backdropUrl ? (
-          <Image
-            src={title.backdropUrl}
-            alt=""
-            fill
-            priority
-            sizes="100vw"
-            className="object-cover"
-            unoptimized
-          />
+      <div className="relative h-[82vh] min-h-[560px] max-h-[860px] w-full overflow-hidden">
+        {art ? (
+          <>
+            {/* Portrait poster can't fill a 16:9 stage — a blurred, over-scaled
+                copy paints the frame and the sharp poster sits on top of it. */}
+            <Image
+              src={art}
+              alt=""
+              fill
+              priority
+              sizes="100vw"
+              className="scale-125 object-cover opacity-60 blur-2xl saturate-150"
+              unoptimized
+            />
+            <div className="absolute inset-0 flex items-start justify-center pt-20 md:items-center md:justify-end md:pr-[7%] md:pt-0">
+              <div className="relative aspect-[2/3] h-[44%] max-w-[58vw] overflow-hidden rounded-xl shadow-[0_40px_110px_-30px_rgba(0,0,0,0.95)] ring-1 ring-white/12 md:h-[68%] md:max-w-none">
+                <Image
+                  src={art}
+                  alt={title.title}
+                  fill
+                  priority
+                  sizes="(max-width: 768px) 58vw, 32vw"
+                  className="object-cover"
+                  unoptimized
+                />
+              </div>
+            </div>
+          </>
         ) : (
           <div className="absolute inset-0 vision-stage" />
         )}
@@ -57,7 +76,7 @@ export function Hero({ title, resumeSeconds = 0 }: HeroProps) {
         {title.previewClipUrl ? (
           <PreviewClip
             src={title.previewClipUrl}
-            poster={title.backdropUrl}
+            poster={art}
             active={showPreview}
             muted={muted}
             className="hidden md:block"
@@ -67,15 +86,15 @@ export function Hero({ title, resumeSeconds = 0 }: HeroProps) {
         {/* Fixed cinematic scrim — always dark overlay for legible white type (not theme-dependent). */}
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.78)_0%,rgba(0,0,0,0.45)_45%,rgba(0,0,0,0)_76%)]"
+          className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.82)_0%,rgba(0,0,0,0.5)_38%,rgba(0,0,0,0.12)_64%,rgba(0,0,0,0)_84%)]"
         />
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,transparent_42%,rgba(0,0,0,0.55)_72%,rgba(0,0,0,0.92)_100%)]"
+          className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.3)_0%,rgba(0,0,0,0.08)_26%,rgba(0,0,0,0.72)_62%,rgba(0,0,0,0.96)_100%)] md:bg-[linear-gradient(180deg,rgba(0,0,0,0.22)_0%,transparent_34%,rgba(0,0,0,0.5)_78%,rgba(0,0,0,0.94)_100%)]"
         />
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-0 bg-[radial-gradient(80%_60%_at_50%_50%,transparent,rgba(0,0,0,0.38))]"
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(90%_70%_at_55%_45%,transparent,rgba(0,0,0,0.28))]"
         />
 
         <div className="absolute inset-x-0 bottom-0">
@@ -108,17 +127,19 @@ export function Hero({ title, resumeSeconds = 0 }: HeroProps) {
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.55, delay: 0.18, ease: "easeOut" }}
-                className="max-w-2xl text-balance text-base font-medium text-white/90 md:text-lg"
+                className="line-clamp-2 max-w-2xl text-balance text-base font-medium text-white/90 md:text-lg"
               >
                 {title.tagline}
               </motion.p>
             ) : null}
 
+            {/* Real OMDb plots run 200+ words. Clamp here; the detail page
+                carries the full text in the synopsis sheet. */}
             <motion.p
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.55, delay: 0.26, ease: "easeOut" }}
-              className="max-w-2xl text-pretty text-sm leading-relaxed text-white/78 md:text-base"
+              className="line-clamp-3 max-w-xl text-pretty text-sm leading-relaxed text-white/78 md:max-w-2xl md:text-base"
             >
               {title.synopsis}
             </motion.p>

@@ -696,24 +696,25 @@ function relatedTitleHref(title: CatalogTitle, partyInviteCode: string | null): 
 }
 
 function RelatedTitleCard({ title, href }: { title: CatalogTitle; href: string }) {
-  const art = title.backdropUrl || title.posterUrl
+  const art = title.posterUrl || title.backdropUrl
   return (
     <Link
       href={href}
       scroll
       prefetch
-      className="group flex w-[200px] shrink-0 snap-start flex-col gap-1.5 sm:w-[240px] md:w-[280px]"
+      className="group flex w-[92px] shrink-0 snap-start flex-col sm:w-[104px] md:w-[116px]"
       onClick={(event) => event.stopPropagation()}
       data-testid="player-related-card"
+      aria-label={title.title}
     >
-      <div className="relative aspect-video w-full overflow-hidden rounded-lg shadow-[0_14px_32px_-14px_rgba(0,0,0,0.75)] transition-transform duration-200 group-hover:scale-[1.03]">
+      <div className="relative aspect-[2/3] w-full overflow-hidden rounded-lg shadow-[0_14px_32px_-14px_rgba(0,0,0,0.75)] ring-1 ring-white/10 transition-transform duration-200 group-hover:scale-[1.04]">
         {art ? (
-          <Image src={art} alt="" fill className="object-cover" sizes="280px" unoptimized />
+          <Image src={art} alt="" fill className="object-cover" sizes="116px" unoptimized />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center text-[10px] text-white/45">WS</div>
         )}
       </div>
-      <p className="line-clamp-2 px-0.5 text-[11px] font-normal leading-tight text-white/75">{title.title}</p>
+      <span className="sr-only">{title.title}</span>
     </Link>
   )
 }
