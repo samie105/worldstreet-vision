@@ -48,7 +48,26 @@ const clerkMw = clerkMiddleware(
     }
 
     if (!isPublicRoute(req)) {
-      await auth.protect()
+      const { userId } = await auth()
+      if (!userId) {
+        // Redirect signed-out visitors OURSELVES, exactly like the academy web
+        // app — a clean server-side 307 to the WorldStreet hub login carrying a
+        // ?redirect back here. `auth.protect()` instead triggers Clerk's
+        // satellite handshake, which 404s cookieless requests and lands
+        // browsers on an ugly ?redirect_url=…&__clerk_synced=false URL. The
+        // manual redirect short-circuits that; the satellite config below still
+        // shares the session once the user returns.
+        const { pathname, search } = req.nextUrl
+        if (isLocalDev) {
+          const loginUrl = new URL("/login", req.url)
+          loginUrl.searchParams.set("redirect_url", pathname + search)
+          return NextResponse.redirect(loginUrl)
+        }
+        const returnUrl = `https://vision.worldstreetgold.com${pathname}${search}`
+        const authUrl = new URL("https://www.worldstreetgold.com/login")
+        authUrl.searchParams.set("redirect", returnUrl)
+        return NextResponse.redirect(authUrl)
+      }
     }
   },
   // Satellite config lives in CODE, not env, mirroring the academy web app.
