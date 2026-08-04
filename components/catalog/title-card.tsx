@@ -32,10 +32,10 @@ const BADGE_COPY: Record<TitleBadge, string> = {
 }
 
 const BADGE_TONE: Record<TitleBadge, string> = {
-  "new-release": "bg-emerald-500/95 text-white",
-  "new-season": "bg-emerald-500/95 text-white",
-  "recently-added": "bg-amber-500/95 text-amber-950",
-  "leaving-soon": "bg-rose-500/95 text-white",
+  "new-release": "bg-success/95 text-white",
+  "new-season": "bg-success/95 text-white",
+  "recently-added": "bg-primary/95 text-primary-foreground",
+  "leaving-soon": "bg-destructive/95 text-white",
   top10: "bg-foreground/95 text-background",
   exclusive: "bg-primary/95 text-primary-foreground",
 }

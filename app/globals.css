@@ -5,89 +5,111 @@
 @custom-variant dark (&:is(.dark *));
 
 /* ───────────────────────────────────────────────────────────────────────
-   Vision: dark-first / cinematic storefront. Light + dark palettes respect
-   system preference and stay aligned with broader Worldstreet UI tokens.
+   Vision — WorldStreet Design System, Platform theme.
+   Token values mirror design-tokens/tokens.css:
+     dark  = data-ws-theme="platform"        (near-black + gold #FFCC29)
+     light = data-ws-theme="platform-light"  (paper + gold, user-toggled)
+   The shadcn semantic vocabulary below is an alias layer over --ws-*.
+   Never hardcode a platform hex in components — use the variables.
    ─────────────────────────────────────────────────────────────────────── */
 :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.147 0.004 49.3);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.147 0.004 49.3);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.147 0.004 49.3);
-    --primary: oklch(0.852 0.199 91.936);
-    --primary-foreground: oklch(0.421 0.095 57.708);
-    --secondary: oklch(0.967 0.001 286.375);
-    --secondary-foreground: oklch(0.21 0.006 285.885);
-    --muted: oklch(0.96 0.002 17.2);
-    --muted-foreground: oklch(0.547 0.021 43.1);
-    --accent: oklch(0.96 0.002 17.2);
-    --accent-foreground: oklch(0.214 0.009 43.1);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0.005 34.3);
-    --input: oklch(0.922 0.005 34.3);
-    --ring: oklch(0.714 0.014 41.2);
-    --chart-1: oklch(0.905 0.182 98.111);
-    --chart-2: oklch(0.795 0.184 86.047);
-    --chart-3: oklch(0.681 0.162 75.834);
-    --chart-4: oklch(0.554 0.135 66.442);
-    --chart-5: oklch(0.476 0.114 61.907);
-    --radius: 0.45rem;
-    --sidebar: oklch(0.986 0.002 67.8);
-    --sidebar-foreground: oklch(0.147 0.004 49.3);
-    --sidebar-primary: oklch(0.681 0.162 75.834);
-    --sidebar-primary-foreground: oklch(0.987 0.026 102.212);
-    --sidebar-accent: oklch(0.96 0.002 17.2);
-    --sidebar-accent-foreground: oklch(0.214 0.009 43.1);
-    --sidebar-border: oklch(0.922 0.005 34.3);
-    --sidebar-ring: oklch(0.714 0.014 41.2);
+    /* WS Platform Light tokens */
+    --ws-bg-page: #FAFAFA;
+    --ws-bg-sunken: #F0F0F2;
+    --ws-bg-surface: #FFFFFF;
+    --ws-bg-raised: #F4F4F6;
+    --ws-bg-chip: #EFEFF2;
+    --ws-bg-track: #E4E4E9;
+    --ws-border-hairline: #E4E4E9;
+    --ws-text-primary: #18181B;
+    --ws-text-muted: #6E6E78;
+    --ws-text-subtle: #9A9AA3;
+    --ws-brand-primary: #FFCC29;
+    --ws-brand-active: #F0BC0F;
+    --ws-brand-dim: #D4A917;
+    --ws-brand-on-primary: #0B0B0F;
+    --ws-brand-gold-text: #8A6C00;
+    --ws-status-success: #059669;
+    --ws-status-warning: #D97706;
+    --ws-status-warning-chip: rgba(217, 119, 6, 0.14);
+    --ws-status-danger: #DC2626;
+    --ws-overlay-scrim: rgba(24, 24, 27, 0.45);
+    --ws-focus-ring: #D4A917;
+    --ws-glow-brand: rgba(212, 169, 23, 0.05);
+    --ws-accent-vision: #F43F5E;
+
+    /* shadcn alias layer */
+    --background: var(--ws-bg-page);
+    --foreground: var(--ws-text-primary);
+    --card: var(--ws-bg-surface);
+    --card-foreground: var(--ws-text-primary);
+    --popover: var(--ws-bg-surface);
+    --popover-foreground: var(--ws-text-primary);
+    --primary: var(--ws-brand-primary);
+    --primary-foreground: var(--ws-brand-on-primary);
+    --secondary: var(--ws-bg-raised);
+    --secondary-foreground: var(--ws-text-primary);
+    --muted: var(--ws-bg-chip);
+    --muted-foreground: var(--ws-text-muted);
+    --accent: var(--ws-bg-raised);
+    --accent-foreground: var(--ws-text-primary);
+    --destructive: var(--ws-status-danger);
+    --border: var(--ws-border-hairline);
+    --input: var(--ws-border-hairline);
+    --ring: var(--ws-focus-ring);
+    --chart-1: var(--ws-brand-active);
+    --chart-2: var(--ws-brand-primary);
+    --chart-3: var(--ws-brand-dim);
+    --chart-4: #A88612;
+    --chart-5: #7C640D;
+    --sidebar: var(--ws-bg-surface);
+    --sidebar-foreground: var(--ws-text-primary);
+    --sidebar-primary: var(--ws-brand-primary);
+    --sidebar-primary-foreground: var(--ws-brand-on-primary);
+    --sidebar-accent: var(--ws-bg-raised);
+    --sidebar-accent-foreground: var(--ws-text-primary);
+    --sidebar-border: var(--ws-border-hairline);
+    --sidebar-ring: var(--ws-focus-ring);
 
     /* Vision-only: cinematic backdrop tones for hero, rails, and player. */
-    --vision-stage: oklch(0.147 0.004 49.3);
-    --vision-stage-foreground: oklch(0.986 0.002 67.8);
-    --vision-overlay: oklch(0 0 0 / 35%);
+    --vision-stage: #0B0B0F;
+    --vision-stage-foreground: #FAFAFA;
+    --vision-overlay: rgba(0, 0, 0, 0.35);
 }
 
 .dark {
-    --background: oklch(0.147 0.004 49.3);
-    --foreground: oklch(0.986 0.002 67.8);
-    --card: oklch(0.214 0.009 43.1);
-    --card-foreground: oklch(0.986 0.002 67.8);
-    --popover: oklch(0.214 0.009 43.1);
-    --popover-foreground: oklch(0.986 0.002 67.8);
-    --primary: oklch(0.795 0.184 86.047);
-    --primary-foreground: oklch(0.421 0.095 57.708);
-    --secondary: oklch(0.274 0.006 286.033);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.268 0.011 36.5);
-    --muted-foreground: oklch(0.714 0.014 41.2);
-    --accent: oklch(0.268 0.011 36.5);
-    --accent-foreground: oklch(0.986 0.002 67.8);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.547 0.021 43.1);
-    --chart-1: oklch(0.905 0.182 98.111);
-    --chart-2: oklch(0.795 0.184 86.047);
-    --chart-3: oklch(0.681 0.162 75.834);
-    --chart-4: oklch(0.554 0.135 66.442);
-    --chart-5: oklch(0.476 0.114 61.907);
-    --sidebar: oklch(0.214 0.009 43.1);
-    --sidebar-foreground: oklch(0.986 0.002 67.8);
-    --sidebar-primary: oklch(0.795 0.184 86.047);
-    --sidebar-primary-foreground: oklch(0.987 0.026 102.212);
-    --sidebar-accent: oklch(0.268 0.011 36.5);
-    --sidebar-accent-foreground: oklch(0.986 0.002 67.8);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.547 0.021 43.1);
+    /* WS Platform tokens (the Vision default) */
+    --ws-bg-page: #0B0B0F;
+    --ws-bg-sunken: #08080A;
+    --ws-bg-surface: #15151A;
+    --ws-bg-raised: #1F1F26;
+    --ws-bg-chip: #1F1F26;
+    --ws-bg-track: #26262E;
+    --ws-border-hairline: #26262E;
+    --ws-text-primary: #FAFAFA;
+    --ws-text-muted: #8E8E97;
+    --ws-text-subtle: #64646C;
+    --ws-brand-primary: #FFCC29;
+    --ws-brand-active: #FFD75C;
+    --ws-brand-dim: #D4A917;
+    --ws-brand-on-primary: #0B0B0F;
+    --ws-brand-gold-text: #FFCC29;
+    --ws-status-success: #10B981;
+    --ws-status-warning: #F59E0B;
+    --ws-status-warning-chip: rgba(245, 158, 11, 0.14);
+    --ws-status-danger: #EF4444;
+    --ws-overlay-scrim: rgba(0, 0, 0, 0.60);
+    --ws-focus-ring: #FFCC29;
+    --ws-glow-brand: rgba(255, 204, 41, 0.06);
 
-    --vision-stage: oklch(0.115 0.005 49.3);
-    --vision-stage-foreground: oklch(0.986 0.002 67.8);
-    --vision-overlay: oklch(0 0 0 / 55%);
+    --vision-stage: #08080A;
+    --vision-stage-foreground: #FAFAFA;
+    --vision-overlay: rgba(0, 0, 0, 0.55);
 }
 
 @theme inline {
     --font-sans: var(--font-sans);
+    --font-display: var(--font-display), var(--font-sans), system-ui, sans-serif;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -120,17 +142,32 @@
     --color-foreground: var(--foreground);
     --color-background: var(--background);
 
+    /* WS semantic utilities: bg-raised, text-gold, text-success, bg-brand-active… */
+    --color-sunken: var(--ws-bg-sunken);
+    --color-raised: var(--ws-bg-raised);
+    --color-chip: var(--ws-bg-chip);
+    --color-track: var(--ws-bg-track);
+    --color-gold: var(--ws-brand-gold-text);
+    --color-brand-active: var(--ws-brand-active);
+    --color-brand-dim: var(--ws-brand-dim);
+    --color-success: var(--ws-status-success);
+    --color-warning: var(--ws-status-warning);
+    --color-scrim: var(--ws-overlay-scrim);
+    --color-accent-vision: var(--ws-accent-vision);
+
     --color-vision-stage: var(--vision-stage);
     --color-vision-stage-foreground: var(--vision-stage-foreground);
     --color-vision-overlay: var(--vision-overlay);
 
-    --radius-sm: calc(var(--radius) * 0.6);
-    --radius-md: calc(var(--radius) * 0.8);
-    --radius-lg: var(--radius);
-    --radius-xl: calc(var(--radius) * 1.4);
-    --radius-2xl: calc(var(--radius) * 1.8);
-    --radius-3xl: calc(var(--radius) * 2.2);
-    --radius-4xl: calc(var(--radius) * 2.6);
+    /* WS radius scale — deliberately tight: 4 / 7 / 10 / 13, pill for avatars.
+       Never drift back to 16/20/24 rounded-everything. */
+    --radius-sm: 4px;
+    --radius-md: 7px;
+    --radius-lg: 10px;
+    --radius-xl: 13px;
+    --radius-2xl: 13px;
+    --radius-3xl: 13px;
+    --radius-4xl: 13px;
 }
 
 @layer base {
@@ -143,9 +180,14 @@
   html {
     @apply font-sans;
     }
+  /* Display face (Poppins) for headings; money/stats keep tabular digits. */
+  h1, h2, h3 {
+    font-family: var(--font-display), var(--font-sans), system-ui, sans-serif;
+  }
 }
 
-/* ── Card polish: borders in light, transparent border in dark ──────── */
+/* ── Card polish: borders in light, hairline in dark (surface ladder does
+      the depth work — no shadows on cards). ─────────────────────────── */
 :root .rounded-2xl[class*="bg-card"],
 :root .rounded-xl[class*="bg-card"] {
   border: 1px solid var(--border);
@@ -153,7 +195,7 @@
 }
 .dark .rounded-2xl[class*="bg-card"],
 .dark .rounded-xl[class*="bg-card"] {
-  border-color: transparent;
+  border-color: var(--ws-border-hairline);
 }
 
 /* Two-tone hugeicons accent treatment, same as dashboard. */
@@ -165,11 +207,12 @@ svg[viewBox="0 0 24 24"] > path:not(:first-child) {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
-/* Cinematic stage gradient used behind hero sections. */
+/* Cinematic stage behind hero/player: platform sunken black with the
+   sanctioned ambient brand glow (decorative radials only, never a fill). */
 .vision-stage {
   background:
-    radial-gradient(120% 80% at 80% 0%, color-mix(in oklch, var(--color-primary) 18%, transparent) 0%, transparent 60%),
-    radial-gradient(80% 60% at 0% 100%, color-mix(in oklch, var(--color-chart-3) 12%, transparent) 0%, transparent 70%),
+    radial-gradient(640px 480px at 68% 30%, var(--ws-glow-brand), transparent 70%),
+    radial-gradient(720px 540px at 12% 85%, var(--ws-glow-brand), transparent 70%),
     var(--color-vision-stage);
   color: var(--color-vision-stage-foreground);
 }

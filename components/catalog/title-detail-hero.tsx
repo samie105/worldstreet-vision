@@ -58,7 +58,7 @@ const flowItem = {
 
 /** Solid primary Play — reads bright on the hero */
 const playBtnPrimary =
-  "inline-flex items-center gap-2 rounded-full bg-white px-[1.15rem] py-2.5 text-sm font-semibold text-neutral-950 shadow-[0_8px_32px_-8px_rgba(0,0,0,0.55)] transition-[background,transform,box-shadow] duration-200 hover:bg-white hover:shadow-[0_12px_40px_-6px_rgba(0,0,0,0.5)] active:scale-[0.99]"
+  "inline-flex items-center gap-2 rounded-md bg-primary px-[1.15rem] py-2.5 text-sm font-semibold text-primary-foreground shadow-[0_8px_32px_-8px_rgba(0,0,0,0.55)] transition-[background,transform,box-shadow] duration-200 hover:bg-brand-active hover:shadow-[0_12px_40px_-6px_rgba(0,0,0,0.5)] active:scale-[0.99]"
 /** Lighter glass — more see-through */
 const glassBtn =
   "inline-flex items-center gap-2 rounded-full bg-white/[0.04] px-[1.1rem] py-2.5 text-sm font-medium text-white/95 shadow-[0_6px_36px_-12px_rgba(0,0,0,0.5)] backdrop-blur-2xl transition-[background,transform] duration-200 hover:bg-white/[0.09] active:scale-[0.99]"
@@ -181,8 +181,8 @@ export function TitleDetailHero({
                 <div className="flex flex-col pr-[clamp(5rem,26vw,6.5rem)] sm:pr-[min(13rem,34%)] md:pr-[min(13rem,34%)] lg:pr-[min(11rem,30%)]">
                   <div className="flex flex-col gap-0.5 md:gap-1">
                     <div className="flex flex-wrap items-center gap-1.5 md:gap-2">
-                      <span className="rounded-full bg-amber-400/[0.07] px-2.5 py-0.5 text-[9px] font-normal uppercase tracking-[0.14em] text-amber-50/88 backdrop-blur-md sm:text-[10px]">
-                        Worldstreet Original
+                      <span className="rounded-full bg-primary/[0.12] px-2.5 py-0.5 text-[9px] font-normal uppercase tracking-[0.14em] text-primary backdrop-blur-md sm:text-[10px]">
+                        WorldStreet Original
                       </span>
                       <span className={glassPill}>{title.releaseYear}</span>
                       <span className={`${glassPill} capitalize`}>{title.kind}</span>

@@ -768,7 +768,7 @@ function PlayerDetailsPanel({
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
             transition={{ type: "spring", stiffness: 320, damping: 36 }}
-            className="absolute inset-y-0 right-0 z-[5] flex w-full max-w-md flex-col border-l border-white/10 bg-zinc-950/95 text-white shadow-2xl backdrop-blur-xl"
+            className="absolute inset-y-0 right-0 z-[5] flex w-full max-w-md flex-col border-l border-white/10 bg-vision-stage/95 text-white shadow-2xl backdrop-blur-xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">

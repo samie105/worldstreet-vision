@@ -2,10 +2,10 @@ import type { MetadataRoute } from "next"
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Worldstreet Vision",
+    name: "WorldStreet Vision",
     short_name: "Vision",
     description:
-      "Premium streaming, watch parties, and original Worldstreet media experiences.",
+      "Premium streaming, watch parties, and original WorldStreet media experiences.",
     start_url: "/",
     display: "standalone",
     background_color: "#171613",

@@ -83,7 +83,7 @@ export default async function WatchTogetherPage() {
   return (
     <div className="mx-auto max-w-3xl px-4 pt-6 md:px-8">
       <header className="mb-6">
-        <p className="text-xs uppercase tracking-[0.25em] text-muted-foreground">Worldstreet Vision</p>
+        <p className="text-xs uppercase tracking-[0.25em] text-muted-foreground">WorldStreet Vision</p>
         <h1 className="mt-1 text-2xl font-semibold tracking-tight">Watch Together</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Host a synchronised viewing experience for your crew. Pick something from the library and
@@ -112,7 +112,7 @@ export default async function WatchTogetherPage() {
             >
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium">
-                  {title?.title ?? "Worldstreet Vision"}
+                  {title?.title ?? "WorldStreet Vision"}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {session.participants.length} member{session.participants.length === 1 ? "" : "s"} ·

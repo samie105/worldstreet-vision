@@ -123,7 +123,7 @@ export function AdminShell({
         <div className="flex items-start justify-between gap-2 border-b border-border/60 p-4">
           <Link href="/admin" className="min-w-0 flex-1">
             <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-              Worldstreet
+              WorldStreet
             </p>
             <p className="truncate text-[15px] font-semibold leading-tight tracking-tight">Vision Studio</p>
             <p className="mt-1 text-[11px] text-muted-foreground">Catalog · pipeline · storefront</p>

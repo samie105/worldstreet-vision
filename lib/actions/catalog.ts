@@ -143,7 +143,7 @@ export async function createCloudflareStreamDirectUpload(
 
     const title = input.titleId ? await VisionTitle.findById(input.titleId) : null
     const upload = await createCloudflareDirectUpload({
-      title: title?.title ?? "Worldstreet Vision upload",
+      title: title?.title ?? "WorldStreet Vision upload",
       requireSignedUrls: input.signed !== false,
     })
 

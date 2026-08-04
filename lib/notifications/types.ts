@@ -32,7 +32,7 @@ export function buildSeedNotifications(titles: CatalogTitle[]): VisionNotificati
     {
       id: "n-recommendation-1",
       kind: "recommendation",
-      title: `Because you watched ${featured[1]?.title ?? "Worldstreet Originals"}`,
+      title: `Because you watched ${featured[1]?.title ?? "WorldStreet Originals"}`,
       body: `${featured[0]?.title ?? "Golden Hour Protocol"} just landed and matches your taste profile.`,
       createdAt: new Date(now - 1_800_000).toISOString(),
       read: false,

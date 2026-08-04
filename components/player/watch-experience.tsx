@@ -212,7 +212,7 @@ export function WatchExperience({
           onLoadedMetadata={onLoaded}
           onBack={requestLeaveWatch}
           meta={{
-            title: title?.title ?? "Worldstreet Vision",
+            title: title?.title ?? "WorldStreet Vision",
             subtitle: title?.tagline,
             seriesLabel: episodeLabel ?? undefined,
           }}

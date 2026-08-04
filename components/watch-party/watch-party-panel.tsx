@@ -607,7 +607,7 @@ export function WatchPartyPanel({
     return (
       <div className="flex flex-col gap-4 p-4 text-sm text-vision-stage-foreground">
         {!user ? (
-          <p className="rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+          <p className="rounded-md border border-warning/35 bg-warning/10 px-3 py-2 text-xs text-warning">
             Sign in to host or join a watch party.
           </p>
         ) : null}
@@ -848,9 +848,9 @@ function ConnectionPill({ status }: { status: RealtimeStatus }) {
     { label: string; dot: string; text: string }
   > = {
     idle: { label: "Idle", dot: "bg-muted-foreground/40", text: "text-muted-foreground" },
-    connecting: { label: "Connecting", dot: "bg-amber-400 animate-pulse", text: "text-amber-200" },
-    connected: { label: "Live", dot: "bg-emerald-400", text: "text-emerald-200" },
-    disconnected: { label: "Reconnecting", dot: "bg-amber-400 animate-pulse", text: "text-amber-200" },
+    connecting: { label: "Connecting", dot: "bg-warning animate-pulse", text: "text-warning" },
+    connected: { label: "Live", dot: "bg-success", text: "text-success" },
+    disconnected: { label: "Reconnecting", dot: "bg-warning animate-pulse", text: "text-warning" },
     suspended: { label: "Offline", dot: "bg-orange-400", text: "text-orange-200" },
     failed: { label: "Disconnected", dot: "bg-destructive", text: "text-destructive" },
   }

@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next"
-import { Geist_Mono, Public_Sans } from "next/font/google"
+import { Geist_Mono, Poppins, Public_Sans } from "next/font/google"
 import { ClerkProvider } from "@clerk/nextjs"
 import { NuqsAdapter } from "nuqs/adapters/next/app"
 
@@ -17,7 +17,16 @@ import { listTitles } from "@/lib/catalog/queries"
 import { resolveVisionAppUrl } from "@/lib/site"
 import { cn } from "@/lib/utils"
 
-const publicSans = Public_Sans({ subsets: ["latin"], variable: "--font-sans" })
+const publicSans = Public_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-sans",
+})
+const poppins = Poppins({
+  subsets: ["latin"],
+  weight: ["600", "700", "800"],
+  variable: "--font-display",
+})
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-mono" })
 
 export const viewport: Viewport = {
@@ -31,11 +40,11 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   title: {
-    default: "Worldstreet Vision",
-    template: "%s · Worldstreet Vision",
+    default: "WorldStreet Vision",
+    template: "%s · WorldStreet Vision",
   },
   description:
-    "Cinematic streaming for Worldstreet members. Watch premium content, build your list, and host watch parties — all in one place.",
+    "Cinematic streaming for WorldStreet members. Watch premium content, build your list, and host watch parties — all in one place.",
   metadataBase: new URL(resolveVisionAppUrl()),
   icons: {
     icon: [
@@ -45,10 +54,10 @@ export const metadata: Metadata = {
     apple: [{ url: "/worldstreet-logo/WorldStreet1x.png", type: "image/png" }],
   },
   openGraph: {
-    title: "Worldstreet Vision",
+    title: "WorldStreet Vision",
     description:
-      "Cinematic streaming for Worldstreet members with premium films, watch parties, and a high-class media experience.",
-    siteName: "Worldstreet Vision",
+      "Cinematic streaming for WorldStreet members with premium films, watch parties, and a high-class media experience.",
+    siteName: "WorldStreet Vision",
     images: [{ url: "/worldstreet-logo/WorldStreet-logo.png" }],
   },
 }
@@ -62,7 +71,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html
       lang="en"
       suppressHydrationWarning
-      className={cn("antialiased", geistMono.variable, "font-sans", publicSans.variable)}
+      data-ws-theme="platform"
+      className={cn(
+        "antialiased",
+        geistMono.variable,
+        "font-sans",
+        publicSans.variable,
+        poppins.variable,
+      )}
     >
       <body>
         <ThemeProvider>

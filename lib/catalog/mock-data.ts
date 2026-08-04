@@ -614,7 +614,7 @@ export const MOCK_RAILS: CatalogRail[] = [
   {
     _id: "demo-rail-featured",
     slug: "featured-on-worldstreet-vision",
-    label: "Featured on Worldstreet Vision",
+    label: "Featured on WorldStreet Vision",
     kind: "manual",
     position: 1,
     isActive: true,

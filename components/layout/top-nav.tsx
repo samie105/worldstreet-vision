@@ -76,7 +76,7 @@ export function TopNav({ recommendations = [] }: TopNavProps) {
         <Link href="/" className="flex items-center gap-2 shrink-0">
           <Image
             src="/worldstreet-logo/WorldStreet1x.png"
-            alt="Worldstreet Vision"
+            alt="WorldStreet Vision"
             width={28}
             height={28}
             className="size-6 object-contain"
@@ -85,12 +85,11 @@ export function TopNav({ recommendations = [] }: TopNavProps) {
           />
           <span
             className={cn(
-              "text-sm font-semibold tracking-tight md:text-base",
+              "font-display text-sm font-semibold tracking-tight md:text-base",
               navOnDark ? "text-white drop-shadow-sm" : "text-foreground",
             )}
           >
-            Worldstreet{" "}
-            <span className={navOnDark ? "text-white" : "text-primary"}>Vision</span>
+            WorldStreet <span className="text-gold">Vision</span>
           </span>
         </Link>
 
@@ -106,14 +105,12 @@ export function TopNav({ recommendations = [] }: TopNavProps) {
                 href={link.href}
                 data-testid={`nav-${link.name.toLowerCase().replace(/\s+/g, "-")}`}
                 className={cn(
-                  "relative rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors",
-                  navOnDark
-                    ? isActive
-                      ? "text-white"
-                      : "text-white/72 hover:text-white"
-                    : isActive
-                      ? "text-foreground"
-                      : "text-foreground/65 hover:text-foreground",
+                  "relative rounded-md px-3 py-1.5 text-[13px] transition-colors",
+                  isActive
+                    ? "font-semibold text-gold"
+                    : navOnDark
+                      ? "font-medium text-white/72 hover:text-white"
+                      : "font-medium text-muted-foreground hover:text-foreground",
                 )}
               >
                 {link.name}

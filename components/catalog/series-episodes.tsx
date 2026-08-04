@@ -185,7 +185,7 @@ export function SeriesEpisodes({ title, progressMap }: SeriesEpisodesProps) {
                   {/* Watched checkmark badge */}
                   {status.watched ? (
                     <span
-                      className="absolute right-1.5 top-1.5 inline-flex size-5 items-center justify-center rounded-full bg-emerald-500 text-white shadow-md"
+                      className="absolute right-1.5 top-1.5 inline-flex size-5 items-center justify-center rounded-full bg-success text-white shadow-md"
                       aria-label="Watched"
                     >
                       <HugeiconsIcon icon={Tick02Icon} strokeWidth={3} className="size-3" />
@@ -198,7 +198,7 @@ export function SeriesEpisodes({ title, progressMap }: SeriesEpisodesProps) {
                       <div
                         className={cn(
                           "h-full",
-                          status.watched ? "bg-emerald-500" : "bg-primary",
+                          status.watched ? "bg-success" : "bg-primary",
                         )}
                         style={{ width: `${Math.round(status.pct * 100)}%` }}
                       />
@@ -217,7 +217,7 @@ export function SeriesEpisodes({ title, progressMap }: SeriesEpisodesProps) {
                       </span>
                     ) : null}
                     {status.watched ? (
-                      <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
+                      <span className="rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-success">
                         Watched
                       </span>
                     ) : null}

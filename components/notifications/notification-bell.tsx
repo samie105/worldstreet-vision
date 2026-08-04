@@ -40,8 +40,8 @@ const KIND_ICON: Record<VisionNotificationKind, typeof PlayIcon> = {
 const TONE_CLASS = {
   primary: "bg-primary/15 text-primary",
   info: "bg-sky-500/15 text-sky-400",
-  success: "bg-emerald-500/15 text-emerald-400",
-  warning: "bg-amber-500/15 text-amber-400",
+  success: "bg-success/15 text-success",
+  warning: "bg-warning/15 text-warning",
 } as const
 
 export function NotificationBell({ recommendations, triggerClassName }: NotificationBellProps) {
@@ -78,7 +78,7 @@ export function NotificationBell({ recommendations, triggerClassName }: Notifica
             layout
             initial={{ scale: 0.8 }}
             animate={{ scale: 1 }}
-            className="absolute -right-0.5 -top-0.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white shadow-md shadow-rose-900/40"
+            className="absolute -right-0.5 -top-0.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-white shadow-md shadow-black/40"
             aria-hidden
           >
             {unread > 9 ? "9+" : unread}

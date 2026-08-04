@@ -10,9 +10,9 @@ export function SiteFooter() {
     >
       <div className="mx-auto flex max-w-7xl flex-col gap-5 md:flex-row md:items-center md:justify-between">
         <div className="flex flex-col gap-1">
-          <p className="text-sm font-semibold tracking-tight">Worldstreet Vision</p>
+          <p className="text-sm font-semibold tracking-tight">WorldStreet Vision</p>
           <p className="text-xs text-muted-foreground">
-            © {new Date().getFullYear()} Worldstreet. All rights reserved.
+            © {new Date().getFullYear()} WorldStreet. All rights reserved.
           </p>
           <Link
             href="https://www.themoviedb.org/"

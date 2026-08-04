@@ -18,7 +18,7 @@ export default async function RegisterPage({
       <div className="w-full max-w-md">
         <div className="mb-6 text-center">
           <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
-            Worldstreet
+            WorldStreet
           </p>
           <h1 className="mt-1 text-3xl font-semibold tracking-tight text-vision-stage-foreground">
             Vision
