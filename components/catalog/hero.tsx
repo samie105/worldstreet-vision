@@ -16,9 +16,23 @@ interface HeroProps {
   title: CatalogTitle
   /** Continue watching position in seconds, used to switch the play CTA to "Resume". */
   resumeSeconds?: number
+  /**
+   * "poster"    — blurred portrait wash with the sharp poster on the right and
+   *               the uppercase letter-staggered logo treatment.
+   * "billboard" — full-bleed landscape backdrop with an editorial billing
+   *               block (director / cast / genre / runtime).
+   */
+  variant?: "poster" | "billboard"
 }
 
-export function Hero({ title, resumeSeconds = 0 }: HeroProps) {
+export function Hero({ title, resumeSeconds = 0, variant = "poster" }: HeroProps) {
+  if (variant === "billboard") {
+    return <HeroBillboard title={title} resumeSeconds={resumeSeconds} />
+  }
+  return <HeroPoster title={title} resumeSeconds={resumeSeconds} />
+}
+
+function HeroPoster({ title, resumeSeconds = 0 }: Omit<HeroProps, "variant">) {
   const [showPreview, setShowPreview] = React.useState(false)
   const [muted, setMuted] = React.useState(true)
 
@@ -105,8 +119,8 @@ export function Hero({ title, resumeSeconds = 0 }: HeroProps) {
               transition={{ duration: 0.4, ease: "easeOut" }}
               className="flex items-center gap-2 text-xs text-white"
             >
-              <Badge variant="premium" className="border border-amber-400/35 bg-amber-400/15 text-amber-50">
-                Worldstreet Original
+              <Badge variant="premium" className="border border-primary/35 bg-primary/15 text-primary">
+                WorldStreet Original
               </Badge>
               <span className="rounded-md border border-white/35 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-white">
                 {title.maturityRating.toUpperCase()}
@@ -152,7 +166,7 @@ export function Hero({ title, resumeSeconds = 0 }: HeroProps) {
             >
               <Link
                 href={playHref}
-                className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black shadow-lg shadow-black/40 transition hover:bg-white/90"
+                className="inline-flex items-center gap-2 rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg shadow-black/40 transition hover:bg-brand-active"
                 data-testid="hero-play"
               >
                 <HugeiconsIcon icon={PlayIcon} strokeWidth={2.5} className="size-4" />
@@ -160,7 +174,7 @@ export function Hero({ title, resumeSeconds = 0 }: HeroProps) {
               </Link>
               <Link
                 href={`/title/${title.slug}`}
-                className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/12 px-5 py-2.5 text-sm font-semibold text-white backdrop-blur-md transition hover:bg-white/20"
+                className="inline-flex items-center gap-2 rounded-md border border-white/25 bg-white/12 px-5 py-2.5 text-sm font-semibold text-white backdrop-blur-md transition hover:bg-white/20"
                 data-testid="hero-info"
               >
                 <HugeiconsIcon icon={InformationCircleIcon} strokeWidth={2} className="size-4" />
@@ -245,5 +259,211 @@ function HeroLogo({ title }: { title: CatalogTitle }) {
         </h1>
       ))}
     </div>
+  )
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+   Billboard variant — the backdrop is the stage. Editorial left column with
+   a film-poster billing block; type is mixed-case Poppins instead of the
+   uppercase logo treatment. Gold appears twice only: eyebrow rule + Play.
+   ──────────────────────────────────────────────────────────────────────── */
+
+function formatRuntime(seconds: number): string | null {
+  if (!seconds || seconds <= 0) return null
+  const h = Math.floor(seconds / 3600)
+  const m = Math.round((seconds % 3600) / 60)
+  return h > 0 ? `${h}h ${m}m` : `${m}m`
+}
+
+const billboardItem = {
+  hidden: { opacity: 0, y: 14 },
+  show: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.55, ease: [0.2, 0, 0, 1] as const },
+  },
+}
+
+function HeroBillboard({ title, resumeSeconds = 0 }: Omit<HeroProps, "variant">) {
+  const [showPreview, setShowPreview] = React.useState(false)
+  const [muted, setMuted] = React.useState(true)
+
+  React.useEffect(() => {
+    const id = window.setTimeout(() => setShowPreview(true), 1_400)
+    return () => window.clearTimeout(id)
+  }, [])
+
+  const playHref = `/watch/${title.mainAssetId ?? title.trailerAssetId ?? ""}${
+    resumeSeconds > 5 ? `?t=${Math.floor(resumeSeconds)}` : ""
+  }`
+
+  const art = title.backdropUrl || title.posterUrl
+  const runtime = formatRuntime(title.durationSeconds)
+
+  const billing: { label: string; value: string }[] = [
+    title.director ? { label: "Directed by", value: title.director } : null,
+    title.cast.length
+      ? { label: "Starring", value: title.cast.slice(0, 3).join(", ") }
+      : null,
+    title.genres.length
+      ? { label: "Genre", value: title.genres.slice(0, 3).join(" · ") }
+      : null,
+    runtime ? { label: "Runtime", value: runtime } : null,
+  ].filter((row): row is { label: string; value: string } => row !== null)
+
+  return (
+    <section
+      data-testid="hero"
+      data-hero-variant="billboard"
+      className={cn("relative isolate -mt-14 overflow-hidden md:-mt-16", "vision-hero")}
+    >
+      <div className="relative h-[82vh] max-h-[860px] min-h-[560px] w-full overflow-hidden">
+        {art ? (
+          <motion.div
+            initial={{ scale: 1.06 }}
+            animate={{ scale: 1 }}
+            transition={{ duration: 9, ease: "easeOut" }}
+            className="absolute inset-0"
+          >
+            <Image
+              src={art}
+              alt=""
+              fill
+              priority
+              sizes="100vw"
+              className="object-cover object-top"
+              unoptimized
+            />
+          </motion.div>
+        ) : (
+          <div className="absolute inset-0 vision-stage" />
+        )}
+
+        {title.previewClipUrl ? (
+          <PreviewClip
+            src={title.previewClipUrl}
+            poster={art}
+            active={showPreview}
+            muted={muted}
+            className="hidden md:block"
+          />
+        ) : null}
+
+        {/* Cinematic scrims: heavy left panel for legible type, bottom fade
+            into the page background — always dark, never theme-dependent. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.88)_0%,rgba(0,0,0,0.62)_34%,rgba(0,0,0,0.18)_62%,rgba(0,0,0,0)_82%)]"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.35)_0%,rgba(0,0,0,0.05)_30%,rgba(0,0,0,0.55)_72%,rgba(0,0,0,0.92)_100%)]"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-background to-transparent"
+        />
+
+        <div className="absolute inset-0 flex items-end">
+          <div className="mx-auto w-full max-w-[1600px] px-4 pb-12 text-white md:px-12 md:pb-16">
+            <motion.div
+              initial="hidden"
+              animate="show"
+              transition={{ staggerChildren: 0.09 }}
+              className="flex max-w-xl flex-col gap-4"
+            >
+              {/* Eyebrow: one gold rule + label, the variant's brand moment. */}
+              <motion.div variants={billboardItem} className="flex items-center gap-3">
+                <span aria-hidden className="h-px w-8 bg-primary" />
+                <span className="text-[11px] font-medium uppercase tracking-[0.22em] text-primary">
+                  WorldStreet Original
+                </span>
+                <span className="rounded-sm border border-white/35 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-white">
+                  {title.maturityRating.toUpperCase()}
+                </span>
+                {title.releaseYear ? (
+                  <span className="text-[11px] text-white/70">{title.releaseYear}</span>
+                ) : null}
+              </motion.div>
+
+              <motion.h1
+                variants={billboardItem}
+                className="text-balance font-bold leading-[1.02] tracking-tight text-white drop-shadow-[0_8px_24px_rgba(0,0,0,0.6)]"
+                style={{ fontSize: "clamp(2.5rem, 5vw, 4.25rem)", letterSpacing: "-0.02em" }}
+              >
+                {title.title}
+              </motion.h1>
+
+              {title.tagline ? (
+                <motion.p
+                  variants={billboardItem}
+                  className="line-clamp-2 text-pretty text-base font-medium text-white/88 md:text-lg"
+                >
+                  {title.tagline}
+                </motion.p>
+              ) : (
+                <motion.p
+                  variants={billboardItem}
+                  className="line-clamp-2 max-w-lg text-pretty text-sm leading-relaxed text-white/75 md:text-base"
+                >
+                  {title.synopsis}
+                </motion.p>
+              )}
+
+              {billing.length ? (
+                <motion.dl variants={billboardItem} className="mt-1 max-w-md">
+                  {billing.map((row) => (
+                    <div
+                      key={row.label}
+                      className="flex items-baseline gap-4 border-t border-white/12 py-1.5 first:border-t-0"
+                    >
+                      <dt className="w-24 shrink-0 text-[10px] font-medium uppercase tracking-[0.18em] text-white/45">
+                        {row.label}
+                      </dt>
+                      <dd className="truncate text-sm text-white/90">{row.value}</dd>
+                    </div>
+                  ))}
+                </motion.dl>
+              ) : null}
+
+              <motion.div
+                variants={billboardItem}
+                className="mt-2 flex flex-wrap items-center gap-2"
+              >
+                <Link
+                  href={playHref}
+                  className="inline-flex items-center gap-2 rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg shadow-black/40 transition hover:bg-brand-active"
+                  data-testid="hero-play"
+                >
+                  <HugeiconsIcon icon={PlayIcon} strokeWidth={2.5} className="size-4" />
+                  {resumeSeconds > 5 ? "Resume" : "Play"}
+                </Link>
+                <Link
+                  href={`/title/${title.slug}`}
+                  className="inline-flex items-center gap-2 rounded-md border border-white/25 bg-white/12 px-5 py-2.5 text-sm font-semibold text-white backdrop-blur-md transition hover:bg-white/20"
+                  data-testid="hero-info"
+                >
+                  <HugeiconsIcon icon={InformationCircleIcon} strokeWidth={2} className="size-4" />
+                  More info
+                </Link>
+                {title.previewClipUrl ? (
+                  <button
+                    onClick={() => setMuted((m) => !m)}
+                    className="ml-auto inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/30 bg-black/35 text-white backdrop-blur-md transition hover:bg-white/15 md:ml-2"
+                    aria-label={muted ? "Unmute preview" : "Mute preview"}
+                  >
+                    <HugeiconsIcon
+                      icon={muted ? VolumeMute01Icon : VolumeHighIcon}
+                      strokeWidth={2}
+                      className="size-4"
+                    />
+                  </button>
+                ) : null}
+              </motion.div>
+            </motion.div>
+          </div>
+        </div>
+      </div>
+    </section>
   )
 }

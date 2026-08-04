@@ -42,7 +42,11 @@ async function Home() {
 
   return (
     <div className="flex flex-col gap-2 md:gap-3">
-      {hero ? <Hero title={hero} resumeSeconds={heroResume} /> : <HomeEmptyState />}
+      {hero ? (
+        <Hero title={hero} resumeSeconds={heroResume} variant="billboard" />
+      ) : (
+        <HomeEmptyState />
+      )}
 
       {continueItems.length > 0 ? (
         <TitleRail
@@ -73,7 +77,7 @@ function HomeEmptyState() {
   return (
     <section className="vision-stage relative -mt-14 flex h-[60vh] min-h-[420px] flex-col items-center justify-center gap-3 px-6 text-center md:-mt-16">
       <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
-        Worldstreet Vision
+        WorldStreet Vision
       </p>
       <h1 className="max-w-2xl text-3xl font-semibold md:text-5xl">
         Your library is taking shape.
