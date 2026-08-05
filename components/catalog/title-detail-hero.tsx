@@ -119,7 +119,7 @@ export function TitleDetailHero({
               />
               {/* Left rail on desktop, sat low so it lines up with the copy
                   beside it rather than stranding a black gap between them. */}
-              <div className="absolute inset-0 flex items-start justify-center pt-16 md:items-end md:justify-start md:pb-[12%] md:pl-[6%] md:pt-0">
+              <div className="absolute inset-0 flex items-start justify-center pt-16 md:items-end md:justify-start md:pb-[12%] md:pl-[11%] md:pt-0">
                 <div className="relative aspect-[2/3] h-[36%] max-w-[52vw] overflow-hidden rounded-xl shadow-[0_40px_110px_-30px_rgba(0,0,0,0.95)] ring-1 ring-white/12 md:h-[40%] md:max-w-none">
                   <Image
                     src={art}
@@ -154,7 +154,7 @@ export function TitleDetailHero({
           >
             <motion.div
               className={cn(
-                "relative mx-auto flex min-h-0 w-full max-w-[1600px] flex-col justify-end px-4 pb-2 pt-20 text-white md:max-h-none md:pb-8 md:pl-[34%] md:pr-12 md:pt-28",
+                "relative mx-auto flex min-h-0 w-full max-w-[1600px] flex-col justify-end px-4 pb-2 pt-20 text-white md:max-h-none md:pb-8 md:pl-[37%] md:pr-12 md:pt-28",
                 movieLockMobile && "max-md:flex-1 max-md:min-h-0 max-md:overflow-hidden",
               )}
               variants={flowParent}
