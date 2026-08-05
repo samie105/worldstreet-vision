@@ -564,8 +564,8 @@ function HeroPanel({
         aria-label={`${playLabel} ${title.title}`}
         className="absolute inset-0 flex items-center justify-center focus-visible:outline-none"
       >
-        <span className="flex size-20 items-center justify-center rounded-full bg-primary/95 text-primary-foreground shadow-[0_18px_50px_-12px_rgba(0,0,0,0.9)] ring-1 ring-black/10 transition duration-300 group-hover:scale-105 md:size-24">
-          <HugeiconsIcon icon={PlayIcon} strokeWidth={2.5} className="size-8 md:size-10" />
+        <span className="flex size-11 items-center justify-center rounded-full bg-white/15 text-white shadow-[0_10px_30px_-8px_rgba(0,0,0,0.8)] ring-1 ring-white/40 backdrop-blur-md transition duration-300 group-hover:bg-white/25 group-hover:scale-105 md:size-14">
+          <HugeiconsIcon icon={PlayIcon} strokeWidth={2.5} className="size-4 md:size-5" />
         </span>
       </Link>
 
