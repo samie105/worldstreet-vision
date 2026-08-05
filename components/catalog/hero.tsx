@@ -5,11 +5,19 @@ import Image from "next/image"
 import Link from "next/link"
 import { motion } from "motion/react"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { PlayIcon, InformationCircleIcon, VolumeMute01Icon, VolumeHighIcon } from "@hugeicons/core-free-icons"
+import {
+  PlayIcon,
+  InformationCircleIcon,
+  VolumeMute01Icon,
+  VolumeHighIcon,
+  ArrowLeft01Icon,
+  ArrowRight01Icon,
+} from "@hugeicons/core-free-icons"
 
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { PreviewClip } from "@/components/player/preview-clip"
+import { posterAtWidth } from "@/lib/catalog/poster"
 import type { CatalogTitle } from "@/lib/catalog/types"
 
 interface HeroProps {
@@ -403,7 +411,7 @@ function HeroBillboard({
           onPointerLeave={() => setPaused(false)}
           onFocusCapture={() => setPaused(true)}
           onBlurCapture={() => setPaused(false)}
-          className="relative z-10 flex h-svh min-h-[520px] snap-x snap-mandatory items-stretch gap-2 overflow-x-auto scroll-smooth scrollbar-none md:gap-3"
+          className="relative z-10 flex h-[56svh] min-h-[420px] snap-x snap-mandatory items-stretch gap-3 overflow-x-auto scroll-smooth px-3 scrollbar-none md:h-[min(90svh,940px)] md:gap-4 md:px-5"
           style={{ scrollbarWidth: "none" }}
         >
           {titles.map((t, i) => (
@@ -420,6 +428,35 @@ function HeroBillboard({
             />
           ))}
         </div>
+
+        {titles.length > 1 ? (
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                const prev = (index - 1 + titles.length) % titles.length
+                setIndex(prev)
+                goTo(prev)
+              }}
+              aria-label="Previous title"
+              className="absolute left-3 top-1/2 z-20 hidden h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white backdrop-blur-md transition hover:bg-black/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 md:flex"
+            >
+              <HugeiconsIcon icon={ArrowLeft01Icon} strokeWidth={2.5} className="size-5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const next = (index + 1) % titles.length
+                setIndex(next)
+                goTo(next)
+              }}
+              aria-label="Next title"
+              className="absolute right-3 top-1/2 z-20 hidden h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white backdrop-blur-md transition hover:bg-black/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 md:flex"
+            >
+              <HugeiconsIcon icon={ArrowRight01Icon} strokeWidth={2.5} className="size-5" />
+            </button>
+          </>
+        ) : null}
 
         {/* The nav floats over the artwork now, so give it a scrim — a bright
             poster must never swallow the wordmark. */}
@@ -476,8 +513,9 @@ function HeroPanel({
    *  must never sit black waiting for an intersection callback. */
   eager: boolean
 }) {
-  const art = title.posterUrl || title.backdropUrl
-  const runtime = formatRuntime(title.durationSeconds)
+  // Rendered at ~600px wide on a big screen, so ask the source for art
+  // that size rather than upscaling a 380px thumbnail.
+  const art = posterAtWidth(title.posterUrl || title.backdropUrl, 900)
   const playHref = `/watch/${title.mainAssetId ?? title.trailerAssetId ?? ""}${
     resumeSeconds > 5 ? `?t=${Math.floor(resumeSeconds)}` : ""
   }`
@@ -488,9 +526,8 @@ function HeroPanel({
     <article
       className={cn(
         "group relative shrink-0 snap-start overflow-hidden bg-surface-sunken",
-        "transition-all duration-500",
-        "h-full shrink-0 basis-full md:basis-[calc(50%-0.375rem)]",
-        isActive ? "opacity-100" : "opacity-70 hover:opacity-95",
+        "transition-transform duration-500",
+        "h-full w-auto aspect-[2/3] shrink-0 rounded-xl",
       )}
     >
       {art ? (
@@ -500,7 +537,7 @@ function HeroPanel({
           fill
           priority={eager}
           loading={eager ? "eager" : "lazy"}
-          sizes="(min-width: 768px) 50vw, 100vw"
+          sizes="(min-width: 768px) 40vw, 70vw"
           className="object-cover"
           unoptimized
         />
@@ -517,72 +554,44 @@ function HeroPanel({
         />
       ) : null}
 
-      {/* Scrim + identity */}
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/92 via-black/35 to-transparent" />
+      {/* The poster carries its own title treatment — don't print it twice.
+          What's left is the affordance: play, and the certificate. */}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-black/20" />
 
-      <div className="absolute inset-x-0 bottom-0 flex flex-col gap-3 p-6 pb-14 md:p-10 md:pb-16">
-        <div className="flex items-center gap-2">
-          <span className="h-px w-6 bg-primary" />
-          <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
-            WorldStreet Original
-          </span>
-        </div>
+      <Link
+        href={playHref}
+        data-testid={primary ? "hero-play" : undefined}
+        aria-label={`${playLabel} ${title.title}`}
+        className="absolute inset-0 flex items-center justify-center focus-visible:outline-none"
+      >
+        <span className="flex size-20 items-center justify-center rounded-full bg-primary/95 text-primary-foreground shadow-[0_18px_50px_-12px_rgba(0,0,0,0.9)] ring-1 ring-black/10 transition duration-300 group-hover:scale-105 md:size-24">
+          <HugeiconsIcon icon={PlayIcon} strokeWidth={2.5} className="size-8 md:size-10" />
+        </span>
+      </Link>
 
-        <h1 className="text-balance font-bold leading-[1.05] tracking-tight text-white [font-size:clamp(1.5rem,2.4vw,2.5rem)]">
-          {title.title}
-        </h1>
+      {/* Certificate, set big — the one piece of type the artwork never has. */}
+      <span className="pointer-events-none absolute bottom-4 left-5 font-black uppercase leading-none tracking-tighter text-white [font-size:clamp(2.25rem,4vw,4rem)] [text-shadow:0_6px_24px_rgba(0,0,0,0.9)] md:bottom-6 md:left-7">
+        {title.maturityRating}
+      </span>
 
-        <div className="flex flex-wrap items-center gap-2 text-[12px] text-white/75">
-          <Badge variant="outline" className="border-white/30 text-white/85">
-            {title.maturityRating.toUpperCase()}
-          </Badge>
-          <span className="tabular-nums">{title.releaseYear}</span>
-          {runtime ? (
-            <>
-              <span aria-hidden className="text-white/30">·</span>
-              <span className="tabular-nums">{runtime}</span>
-            </>
-          ) : null}
-          {title.genres.length ? (
-            <>
-              <span aria-hidden className="text-white/30">·</span>
-              <span className="truncate">{title.genres.slice(0, 3).join(" · ")}</span>
-            </>
-          ) : null}
-        </div>
+      <Link
+        href={`/title/${title.slug}`}
+        data-testid={primary ? "hero-info" : undefined}
+        aria-label={`More about ${title.title}`}
+        className="absolute right-4 top-4 z-10 flex size-10 items-center justify-center rounded-full border border-white/25 bg-black/45 text-white backdrop-blur-md transition hover:bg-black/70"
+      >
+        <HugeiconsIcon icon={InformationCircleIcon} strokeWidth={2} className="size-5" />
+      </Link>
 
-        <div className="flex flex-wrap items-center gap-2 pt-1">
-          <Link
-            href={playHref}
-            data-testid={primary ? "hero-play" : undefined}
-            className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground shadow-lg shadow-black/40 transition hover:bg-brand-active"
-          >
-            <HugeiconsIcon icon={PlayIcon} strokeWidth={2.5} className="size-4" />
-            {playLabel}
-          </Link>
-          <Link
-            href={`/title/${title.slug}`}
-            data-testid={primary ? "hero-info" : undefined}
-            className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/12 px-5 py-2.5 text-sm font-semibold text-white backdrop-blur-md transition hover:bg-white/20"
-          >
-            <HugeiconsIcon icon={InformationCircleIcon} strokeWidth={2} className="size-4" />
-            More info
-          </Link>
-          {showClip ? (
-            <button
-              onClick={onToggleMute}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/30 bg-black/35 text-white backdrop-blur-md transition hover:bg-white/15"
-              aria-label={muted ? "Unmute trailer" : "Mute trailer"}
-            >
-              <HugeiconsIcon
-                icon={muted ? VolumeMute01Icon : VolumeHighIcon}
-                strokeWidth={2}
-                className="size-4"
-              />
-            </button>
-          ) : null}
-        </div>
-      </div>
+      {showClip ? (
+        <button
+          onClick={onToggleMute}
+          className="absolute bottom-4 right-4 z-10 flex size-10 items-center justify-center rounded-full border border-white/25 bg-black/45 text-white backdrop-blur-md transition hover:bg-black/70"
+          aria-label={muted ? "Unmute trailer" : "Mute trailer"}
+        >
+          <HugeiconsIcon icon={muted ? VolumeMute01Icon : VolumeHighIcon} strokeWidth={2} className="size-4" />
+        </button>
+      ) : null}
     </article>
   )
 }

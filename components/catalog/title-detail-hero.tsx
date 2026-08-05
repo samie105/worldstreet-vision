@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { TitleListButton } from "@/components/catalog/title-list-button"
 import { cn, formatDurationCompact } from "@/lib/utils"
+import { posterAtWidth } from "@/lib/catalog/poster"
 import type { CatalogTitle } from "@/lib/catalog/types"
 
 function ratingHeroLabel(rating: CatalogTitle["maturityRating"]): string {
@@ -83,7 +84,7 @@ export function TitleDetailHero({
 
   const movieLockMobile = title.kind === "movie"
 
-  const art = title.posterUrl || title.backdropUrl
+  const art = posterAtWidth(title.posterUrl || title.backdropUrl, 900)
 
   return (
     <>
@@ -118,7 +119,7 @@ export function TitleDetailHero({
               />
               {/* Anchored to the top-right so it clears the rating column and
                   the "More like this" strip, both of which sit low. */}
-              <div className="absolute inset-0 flex items-start justify-center pt-16 md:justify-end md:pr-[6%] md:pt-20">
+              <div className="absolute inset-0 flex items-start justify-center pt-16 md:justify-start md:pl-[6%] md:pt-20">
                 <div className="relative aspect-[2/3] h-[36%] max-w-[52vw] overflow-hidden rounded-xl shadow-[0_40px_110px_-30px_rgba(0,0,0,0.95)] ring-1 ring-white/12 md:h-[40%] md:max-w-none">
                   <Image
                     src={art}

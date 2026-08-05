@@ -93,7 +93,14 @@ export function TopNav({ recommendations = [] }: TopNavProps) {
           </span>
         </Link>
 
-        <nav className="ml-2 hidden items-center md:flex">
+        <nav
+          className={cn(
+            "ml-2 hidden items-center gap-0.5 rounded-full p-0.5 md:flex",
+            // The track is the SUNKEN step; over artwork it needs its own
+            // translucent base so the thumb still reads.
+            navOnDark ? "bg-white/10 backdrop-blur-md" : "bg-surface-sunken",
+          )}
+        >
           {NAV_LINKS.map((link) => {
             const isActive =
               link.href === "/"
@@ -104,24 +111,31 @@ export function TopNav({ recommendations = [] }: TopNavProps) {
                 key={link.href}
                 href={link.href}
                 data-testid={`nav-${link.name.toLowerCase().replace(/\s+/g, "-")}`}
+                aria-current={isActive ? "page" : undefined}
                 className={cn(
-                  // House rule: active nav is foreground text, never gold —
-                  // gold stays reserved for the brand mark and primary CTAs.
-                  "relative rounded-md px-3 py-1.5 text-[13px] transition-colors",
+                  // Segmented grammar: raised thumb on a sunken track. Active is
+                  // never gold — gold stays for the brand mark and primary CTAs.
+                  "relative rounded-full px-3.5 py-1.5 text-[13px] font-semibold transition-colors",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
                   isActive
                     ? navOnDark
-                      ? "font-semibold text-white"
-                      : "font-semibold text-foreground"
+                      ? "text-white"
+                      : "text-foreground"
                     : navOnDark
-                      ? "font-medium text-white/72 hover:text-white"
+                      ? "font-medium text-white/70 hover:text-white"
                       : "font-medium text-muted-foreground hover:text-foreground",
                 )}
               >
-                {link.name}
+                <span className="relative z-10">{link.name}</span>
                 {isActive ? (
                   <motion.span
                     layoutId="nav-active-pill"
-                    className="absolute inset-x-2 -bottom-0.5 h-0.5 rounded-full bg-current"
+                    className={cn(
+                      "absolute inset-0 -z-10 rounded-full",
+                      navOnDark
+                        ? "bg-white/20"
+                        : "bg-card shadow-sm ring-1 ring-foreground/[0.08] dark:bg-accent",
+                    )}
                     transition={{ type: "spring", stiffness: 320, damping: 32 }}
                   />
                 ) : null}
