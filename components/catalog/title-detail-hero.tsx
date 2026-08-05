@@ -117,21 +117,6 @@ export function TitleDetailHero({
                 sizes="100vw"
                 unoptimized
               />
-              {/* Left rail on desktop, sat low so it lines up with the copy
-                  beside it rather than stranding a black gap between them. */}
-              <div className="absolute inset-0 flex items-start justify-center pt-16 md:items-end md:justify-start md:pb-[12%] md:pl-[11%] md:pt-0">
-                <div className="relative aspect-[2/3] h-[36%] max-w-[52vw] overflow-hidden rounded-xl shadow-[0_40px_110px_-30px_rgba(0,0,0,0.95)] ring-1 ring-white/12 md:h-[40%] md:max-w-none">
-                  <Image
-                    src={art}
-                    alt={title.title}
-                    fill
-                    priority
-                    sizes="(max-width: 768px) 52vw, 22vw"
-                    className="object-cover"
-                    unoptimized
-                  />
-                </div>
-              </div>
             </>
           ) : (
             <div className="absolute inset-0 vision-stage" aria-hidden />
@@ -139,7 +124,7 @@ export function TitleDetailHero({
 
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-0 bg-[linear-gradient(270deg,rgba(0,0,0,0.8)_0%,rgba(0,0,0,0.46)_40%,rgba(0,0,0,0.1)_66%,rgba(0,0,0,0)_86%)]"
+            className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.8)_0%,rgba(0,0,0,0.46)_40%,rgba(0,0,0,0.1)_66%,rgba(0,0,0,0)_86%)]"
           />
           <div
             aria-hidden
@@ -154,13 +139,29 @@ export function TitleDetailHero({
           >
             <motion.div
               className={cn(
-                "relative mx-auto flex min-h-0 w-full max-w-[1600px] flex-col justify-end px-4 pb-2 pt-20 text-white md:max-h-none md:pb-8 md:pl-[37%] md:pr-12 md:pt-28",
+                "relative mx-auto flex min-h-0 w-full max-w-[1600px] flex-col justify-end px-4 pb-2 pt-20 text-white md:max-h-none md:px-12 md:pb-8 md:pt-24",
                 movieLockMobile && "max-md:flex-1 max-md:min-h-0 max-md:overflow-hidden",
               )}
               variants={flowParent}
               initial="hidden"
               animate="show"
             >
+              {art ? (
+                <motion.div variants={flowItem} className="mb-5 shrink-0 md:mb-7">
+                  <div className="relative aspect-[2/3] w-[38vw] max-w-[190px] overflow-hidden rounded-xl shadow-[0_40px_110px_-30px_rgba(0,0,0,0.95)] ring-1 ring-white/12 md:w-[15vw] md:max-w-[230px]">
+                    <Image
+                      src={art}
+                      alt={title.title}
+                      fill
+                      priority
+                      sizes="(max-width: 768px) 38vw, 15vw"
+                      className="object-cover"
+                      unoptimized
+                    />
+                  </div>
+                </motion.div>
+              ) : null}
+
               <motion.div variants={flowItem} className="relative min-h-0 max-md:flex-shrink">
                 {/* Rating · duration stays top-right; keep its column narrow on mobile */}
                 <div className="pointer-events-none absolute right-0 top-0 z-10 flex max-w-[5rem] flex-col items-end gap-0.5 text-right sm:max-w-[13rem] md:max-w-[min(100%,11rem)]">
