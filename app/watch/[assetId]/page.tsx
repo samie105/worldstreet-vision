@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation"
 
-import { getAuthUser } from "@/lib/auth/clerk"
+import { getAuthUser, getRealAuthUser } from "@/lib/auth/clerk"
 import { getWatchPartyForParticipant } from "@/lib/actions/watch-party"
 import { getAssetById, getTitleById, listRelatedTitles } from "@/lib/catalog/queries"
 import { isKidSafeTitle } from "@/lib/catalog/maturity"
@@ -68,7 +68,10 @@ export default async function WatchPage({ params, searchParams }: WatchPageProps
       resumeAt = party.data.playback.positionSeconds
       partyInitialIsPlaying = party.data.playback.isPlaying
       partyPlaybackResolved = true
-      const isHost = party.data.hostId === viewer.userId
+      // Hints must use the REAL identity: parties are keyed by Clerk ids, and
+      // under DEV_AUTH_BYPASS getAuthUser() returns the shared dev user.
+      const realViewer = (await getRealAuthUser()) ?? viewer
+      const isHost = party.data.hostId === realViewer.userId
       partyGuestHint = !isHost
       partyHostHint = isHost
     }

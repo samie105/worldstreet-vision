@@ -14,6 +14,10 @@ import type { CatalogTitle } from "@/lib/catalog/types"
 
 interface HeroProps {
   title: CatalogTitle
+  /** Billboard only — the films riding the carousel. Falls back to [title]. */
+  titles?: CatalogTitle[]
+  /** Billboard only — continue-watching positions keyed by title id. */
+  resumeByTitleId?: Record<string, number | undefined>
   /** Continue watching position in seconds, used to switch the play CTA to "Resume". */
   resumeSeconds?: number
   /**
@@ -25,9 +29,14 @@ interface HeroProps {
   variant?: "poster" | "billboard"
 }
 
-export function Hero({ title, resumeSeconds = 0, variant = "poster" }: HeroProps) {
+export function Hero({ title, titles, resumeByTitleId, resumeSeconds = 0, variant = "poster" }: HeroProps) {
   if (variant === "billboard") {
-    return <HeroBillboard title={title} resumeSeconds={resumeSeconds} />
+    return (
+      <HeroBillboard
+        titles={titles?.length ? titles : [title]}
+        resumeByTitleId={resumeByTitleId ?? { [title._id]: resumeSeconds }}
+      />
+    )
   }
   return <HeroPoster title={title} resumeSeconds={resumeSeconds} />
 }
@@ -263,9 +272,12 @@ function HeroLogo({ title }: { title: CatalogTitle }) {
 }
 
 /* ────────────────────────────────────────────────────────────────────────
-   Billboard variant — the backdrop is the stage. Editorial left column with
-   a film-poster billing block; type is mixed-case Poppins instead of the
-   uppercase logo treatment. Gold appears twice only: eyebrow rule + Play.
+   Billboard variant — the poster is the stage. The same artwork paints the
+   background as a heavily blurred, darkened wash (posters carry baked-in
+   billing text, so it must never read), with the crisp portrait poster
+   centered on top under a circular Play. Identity sits to the left of the
+   poster, the billing block to the right; below lg everything stacks into
+   one centered column with the poster on top.
    ──────────────────────────────────────────────────────────────────────── */
 
 function formatRuntime(seconds: number): string | null {
@@ -275,41 +287,83 @@ function formatRuntime(seconds: number): string | null {
   return h > 0 ? `${h}h ${m}m` : `${m}m`
 }
 
-const billboardItem = {
-  hidden: { opacity: 0, y: 14 },
-  show: {
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.55, ease: [0.2, 0, 0, 1] as const },
-  },
-}
-
-function HeroBillboard({ title, resumeSeconds = 0 }: Omit<HeroProps, "variant">) {
-  const [showPreview, setShowPreview] = React.useState(false)
+function HeroBillboard({
+  titles,
+  resumeByTitleId = {},
+}: {
+  titles: CatalogTitle[]
+  resumeByTitleId?: Record<string, number | undefined>
+}) {
+  const trackRef = React.useRef<HTMLDivElement | null>(null)
+  const [index, setIndex] = React.useState(0)
+  const [paused, setPaused] = React.useState(false)
   const [muted, setMuted] = React.useState(true)
+  const [clipsReady, setClipsReady] = React.useState(false)
 
+  // Hold the trailers back for a beat so the posters land first and the page
+  // isn't fighting the network on first paint.
   React.useEffect(() => {
-    const id = window.setTimeout(() => setShowPreview(true), 1_400)
+    const id = window.setTimeout(() => setClipsReady(true), 1_400)
     return () => window.clearTimeout(id)
   }, [])
 
-  const playHref = `/watch/${title.mainAssetId ?? title.trailerAssetId ?? ""}${
-    resumeSeconds > 5 ? `?t=${Math.floor(resumeSeconds)}` : ""
-  }`
+  // Native scroll + snap does the carriage work: it survives any breakpoint
+  // without panel-width arithmetic, and gives touch swiping for free.
+  const goTo = React.useCallback((next: number) => {
+    const track = trackRef.current
+    if (!track) return
+    const panel = track.children[next] as HTMLElement | undefined
+    if (!panel) return
+    track.scrollTo({ left: panel.offsetLeft, behavior: "smooth" })
+  }, [])
 
-  const art = title.backdropUrl || title.posterUrl
-  const runtime = formatRuntime(title.durationSeconds)
+  // Auto-advance one panel at a time. Pauses on hover/focus, while dragging,
+  // and whenever the tab is hidden — a backgrounded tab must not queue jumps.
+  React.useEffect(() => {
+    if (paused || titles.length < 2) return
+    const id = window.setInterval(() => {
+      if (document.hidden) return
+      setIndex((i) => {
+        const next = (i + 1) % titles.length
+        goTo(next)
+        return next
+      })
+    }, 6_500)
+    return () => window.clearInterval(id)
+  }, [paused, titles.length, goTo])
 
-  const billing: { label: string; value: string }[] = [
-    title.director ? { label: "Directed by", value: title.director } : null,
-    title.cast.length
-      ? { label: "Starring", value: title.cast.slice(0, 3).join(", ") }
-      : null,
-    title.genres.length
-      ? { label: "Genre", value: title.genres.slice(0, 3).join(" · ") }
-      : null,
-    runtime ? { label: "Runtime", value: runtime } : null,
-  ].filter((row): row is { label: string; value: string } => row !== null)
+  // Follow manual swipes so the active panel (and its trailer) stays truthful.
+  React.useEffect(() => {
+    const track = trackRef.current
+    if (!track) return
+    let frame = 0
+    const onScroll = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        const children = Array.from(track.children) as HTMLElement[]
+        let nearest = 0
+        let best = Infinity
+        children.forEach((child, i) => {
+          const delta = Math.abs(child.offsetLeft - track.scrollLeft)
+          if (delta < best) {
+            best = delta
+            nearest = i
+          }
+        })
+        setIndex(nearest)
+      })
+    }
+    track.addEventListener("scroll", onScroll, { passive: true })
+    return () => {
+      track.removeEventListener("scroll", onScroll)
+      cancelAnimationFrame(frame)
+    }
+  }, [])
+
+  const active = titles[index] ?? titles[0]
+  const ambient = active?.posterUrl || active?.backdropUrl || ""
+
+  if (!active) return null
 
   return (
     <section
@@ -317,153 +371,218 @@ function HeroBillboard({ title, resumeSeconds = 0 }: Omit<HeroProps, "variant">)
       data-hero-variant="billboard"
       className={cn("relative isolate -mt-14 overflow-hidden md:-mt-16", "vision-hero")}
     >
-      <div className="relative h-[82vh] max-h-[860px] min-h-[560px] w-full overflow-hidden">
-        {art ? (
-          <motion.div
-            initial={{ scale: 1.06 }}
-            animate={{ scale: 1 }}
-            transition={{ duration: 9, ease: "easeOut" }}
-            className="absolute inset-0"
-          >
+      <div className="relative w-full overflow-hidden">
+        {/* Ambient wash — the ACTIVE panel's artwork, over-scaled and heavily
+            blurred so its baked-in billing text can never read, then darkened
+            and dissolved into the rows below. It crossfades as panels change. */}
+        <div aria-hidden className="pointer-events-none absolute inset-0">
+          {ambient ? (
             <Image
-              src={art}
+              key={ambient}
+              src={ambient}
               alt=""
               fill
               priority
               sizes="100vw"
-              className="object-cover object-top"
+              className="scale-125 object-cover opacity-[0.85] blur-[60px] saturate-[1.7] transition-opacity duration-700"
               unoptimized
             />
-          </motion.div>
-        ) : (
-          <div className="absolute inset-0 vision-stage" />
-        )}
-
-        {title.previewClipUrl ? (
-          <PreviewClip
-            src={title.previewClipUrl}
-            poster={art}
-            active={showPreview}
-            muted={muted}
-            className="hidden md:block"
-          />
-        ) : null}
-
-        {/* Cinematic scrims: heavy left panel for legible type, bottom fade
-            into the page background — always dark, never theme-dependent. */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.88)_0%,rgba(0,0,0,0.62)_34%,rgba(0,0,0,0.18)_62%,rgba(0,0,0,0)_82%)]"
-        />
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.35)_0%,rgba(0,0,0,0.05)_30%,rgba(0,0,0,0.55)_72%,rgba(0,0,0,0.92)_100%)]"
-        />
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-background to-transparent"
-        />
-
-        <div className="absolute inset-0 flex items-end">
-          <div className="mx-auto w-full max-w-[1600px] px-4 pb-12 text-white md:px-12 md:pb-16">
-            <motion.div
-              initial="hidden"
-              animate="show"
-              transition={{ staggerChildren: 0.09 }}
-              className="flex max-w-xl flex-col gap-4"
-            >
-              {/* Eyebrow: one gold rule + label, the variant's brand moment. */}
-              <motion.div variants={billboardItem} className="flex items-center gap-3">
-                <span aria-hidden className="h-px w-8 bg-primary" />
-                <span className="text-[11px] font-medium uppercase tracking-[0.22em] text-primary">
-                  WorldStreet Original
-                </span>
-                <span className="rounded-sm border border-white/35 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-white">
-                  {title.maturityRating.toUpperCase()}
-                </span>
-                {title.releaseYear ? (
-                  <span className="text-[11px] text-white/70">{title.releaseYear}</span>
-                ) : null}
-              </motion.div>
-
-              <motion.h1
-                variants={billboardItem}
-                className="text-balance font-bold leading-[1.02] tracking-tight text-white drop-shadow-[0_8px_24px_rgba(0,0,0,0.6)]"
-                style={{ fontSize: "clamp(2.5rem, 5vw, 4.25rem)", letterSpacing: "-0.02em" }}
-              >
-                {title.title}
-              </motion.h1>
-
-              {title.tagline ? (
-                <motion.p
-                  variants={billboardItem}
-                  className="line-clamp-2 text-pretty text-base font-medium text-white/88 md:text-lg"
-                >
-                  {title.tagline}
-                </motion.p>
-              ) : (
-                <motion.p
-                  variants={billboardItem}
-                  className="line-clamp-2 max-w-lg text-pretty text-sm leading-relaxed text-white/75 md:text-base"
-                >
-                  {title.synopsis}
-                </motion.p>
-              )}
-
-              {billing.length ? (
-                <motion.dl variants={billboardItem} className="mt-1 max-w-md">
-                  {billing.map((row) => (
-                    <div
-                      key={row.label}
-                      className="flex items-baseline gap-4 border-t border-white/12 py-1.5 first:border-t-0"
-                    >
-                      <dt className="w-24 shrink-0 text-[10px] font-medium uppercase tracking-[0.18em] text-white/45">
-                        {row.label}
-                      </dt>
-                      <dd className="truncate text-sm text-white/90">{row.value}</dd>
-                    </div>
-                  ))}
-                </motion.dl>
-              ) : null}
-
-              <motion.div
-                variants={billboardItem}
-                className="mt-2 flex flex-wrap items-center gap-2"
-              >
-                <Link
-                  href={playHref}
-                  className="inline-flex items-center gap-2 rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg shadow-black/40 transition hover:bg-brand-active"
-                  data-testid="hero-play"
-                >
-                  <HugeiconsIcon icon={PlayIcon} strokeWidth={2.5} className="size-4" />
-                  {resumeSeconds > 5 ? "Resume" : "Play"}
-                </Link>
-                <Link
-                  href={`/title/${title.slug}`}
-                  className="inline-flex items-center gap-2 rounded-md border border-white/25 bg-white/12 px-5 py-2.5 text-sm font-semibold text-white backdrop-blur-md transition hover:bg-white/20"
-                  data-testid="hero-info"
-                >
-                  <HugeiconsIcon icon={InformationCircleIcon} strokeWidth={2} className="size-4" />
-                  More info
-                </Link>
-                {title.previewClipUrl ? (
-                  <button
-                    onClick={() => setMuted((m) => !m)}
-                    className="ml-auto inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/30 bg-black/35 text-white backdrop-blur-md transition hover:bg-white/15 md:ml-2"
-                    aria-label={muted ? "Unmute preview" : "Mute preview"}
-                  >
-                    <HugeiconsIcon
-                      icon={muted ? VolumeMute01Icon : VolumeHighIcon}
-                      strokeWidth={2}
-                      className="size-4"
-                    />
-                  </button>
-                ) : null}
-              </motion.div>
-            </motion.div>
-          </div>
+          ) : (
+            <div className="absolute inset-0 vision-stage" />
+          )}
+          <div className="absolute inset-0 bg-black/35" />
+          <div className="absolute inset-0 bg-[radial-gradient(120%_90%_at_50%_32%,transparent,rgba(0,0,0,0.55))]" />
+          <div className="absolute inset-x-0 bottom-0 h-44 bg-gradient-to-t from-background via-background/55 to-transparent" />
         </div>
+
+        {/* The carriage. Two panels ride in view on desktop with the next one
+            peeking, one at a time on a phone. */}
+        <div
+          ref={trackRef}
+          onPointerEnter={() => setPaused(true)}
+          onPointerLeave={() => setPaused(false)}
+          onFocusCapture={() => setPaused(true)}
+          onBlurCapture={() => setPaused(false)}
+          className="relative z-10 flex h-svh min-h-[520px] snap-x snap-mandatory items-stretch gap-2 overflow-x-auto scroll-smooth scrollbar-none md:gap-3"
+          style={{ scrollbarWidth: "none" }}
+        >
+          {titles.map((t, i) => (
+            <HeroPanel
+              key={t._id}
+              title={t}
+              isActive={i === index}
+              clipsReady={clipsReady}
+              muted={muted}
+              onToggleMute={() => setMuted((m) => !m)}
+              resumeSeconds={resumeByTitleId[t._id] ?? 0}
+              primary={i === 0}
+              eager={i < 3}
+            />
+          ))}
+        </div>
+
+        {/* The nav floats over the artwork now, so give it a scrim — a bright
+            poster must never swallow the wordmark. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 z-[15] h-28 bg-gradient-to-b from-black/75 via-black/35 to-transparent"
+        />
+
+        {/* Position rail — also the manual control. */}
+        {titles.length > 1 ? (
+          <div className="absolute inset-x-0 bottom-5 z-20 flex items-center justify-center gap-1.5">
+            {titles.map((t, i) => (
+              <button
+                key={t._id}
+                onClick={() => {
+                  setIndex(i)
+                  goTo(i)
+                }}
+                aria-label={`Show ${t.title}`}
+                aria-current={i === index}
+                className={cn(
+                  "h-1 rounded-full transition-all duration-300",
+                  i === index ? "w-7 bg-primary" : "w-3 bg-white/25 hover:bg-white/45",
+                )}
+              />
+            ))}
+          </div>
+        ) : null}
       </div>
     </section>
+  )
+}
+
+/** One panel of the carriage: poster art, trailer when it's the live panel,
+ *  and the film's identity over a bottom scrim. */
+function HeroPanel({
+  title,
+  isActive,
+  clipsReady,
+  muted,
+  onToggleMute,
+  resumeSeconds,
+  primary,
+  eager,
+}: {
+  title: CatalogTitle
+  isActive: boolean
+  clipsReady: boolean
+  muted: boolean
+  onToggleMute: () => void
+  resumeSeconds: number
+  primary: boolean
+  /** The panels that are on screen at first paint load eagerly — a hero panel
+   *  must never sit black waiting for an intersection callback. */
+  eager: boolean
+}) {
+  const art = title.posterUrl || title.backdropUrl
+  const runtime = formatRuntime(title.durationSeconds)
+  const playHref = `/watch/${title.mainAssetId ?? title.trailerAssetId ?? ""}${
+    resumeSeconds > 5 ? `?t=${Math.floor(resumeSeconds)}` : ""
+  }`
+  const playLabel = resumeSeconds > 5 ? "Resume" : "Play"
+  const showClip = Boolean(title.previewClipUrl) && isActive && clipsReady
+
+  return (
+    <article
+      className={cn(
+        "group relative shrink-0 snap-start overflow-hidden bg-surface-sunken",
+        "transition-all duration-500",
+        "h-full shrink-0 basis-full md:basis-[calc(50%-0.375rem)]",
+        isActive ? "opacity-100" : "opacity-70 hover:opacity-95",
+      )}
+    >
+      {art ? (
+        <Image
+          src={art}
+          alt={title.title}
+          fill
+          priority={eager}
+          loading={eager ? "eager" : "lazy"}
+          sizes="(min-width: 768px) 50vw, 100vw"
+          className="object-cover"
+          unoptimized
+        />
+      ) : null}
+
+      {/* The live panel plays its trailer over the poster. */}
+      {showClip ? (
+        <PreviewClip
+          src={title.previewClipUrl}
+          poster={art}
+          active
+          muted={muted}
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      ) : null}
+
+      {/* Scrim + identity */}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/92 via-black/35 to-transparent" />
+
+      <div className="absolute inset-x-0 bottom-0 flex flex-col gap-3 p-6 pb-14 md:p-10 md:pb-16">
+        <div className="flex items-center gap-2">
+          <span className="h-px w-6 bg-primary" />
+          <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
+            WorldStreet Original
+          </span>
+        </div>
+
+        <h1 className="text-balance font-bold leading-[1.05] tracking-tight text-white [font-size:clamp(1.5rem,2.4vw,2.5rem)]">
+          {title.title}
+        </h1>
+
+        <div className="flex flex-wrap items-center gap-2 text-[12px] text-white/75">
+          <Badge variant="outline" className="border-white/30 text-white/85">
+            {title.maturityRating.toUpperCase()}
+          </Badge>
+          <span className="tabular-nums">{title.releaseYear}</span>
+          {runtime ? (
+            <>
+              <span aria-hidden className="text-white/30">·</span>
+              <span className="tabular-nums">{runtime}</span>
+            </>
+          ) : null}
+          {title.genres.length ? (
+            <>
+              <span aria-hidden className="text-white/30">·</span>
+              <span className="truncate">{title.genres.slice(0, 3).join(" · ")}</span>
+            </>
+          ) : null}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <Link
+            href={playHref}
+            data-testid={primary ? "hero-play" : undefined}
+            className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground shadow-lg shadow-black/40 transition hover:bg-brand-active"
+          >
+            <HugeiconsIcon icon={PlayIcon} strokeWidth={2.5} className="size-4" />
+            {playLabel}
+          </Link>
+          <Link
+            href={`/title/${title.slug}`}
+            data-testid={primary ? "hero-info" : undefined}
+            className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/12 px-5 py-2.5 text-sm font-semibold text-white backdrop-blur-md transition hover:bg-white/20"
+          >
+            <HugeiconsIcon icon={InformationCircleIcon} strokeWidth={2} className="size-4" />
+            More info
+          </Link>
+          {showClip ? (
+            <button
+              onClick={onToggleMute}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/30 bg-black/35 text-white backdrop-blur-md transition hover:bg-white/15"
+              aria-label={muted ? "Unmute trailer" : "Mute trailer"}
+            >
+              <HugeiconsIcon
+                icon={muted ? VolumeMute01Icon : VolumeHighIcon}
+                strokeWidth={2}
+                className="size-4"
+              />
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </article>
   )
 }

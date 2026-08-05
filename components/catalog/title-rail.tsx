@@ -29,6 +29,29 @@ interface TitleRailProps {
 const CARD_WIDTHS =
   "w-[31%] sm:w-[23%] md:w-[19%] lg:w-[16.5%] xl:w-[14%] 2xl:w-[12.5%]"
 
+/**
+ * Ranked (Top 10) items are wider: ~30% of the item is reserved for the giant
+ * rank numeral, so the poster inside ends up roughly the same size as a card
+ * in an unranked rail while the row fits fewer items — the Netflix shape.
+ */
+const RANKED_CARD_WIDTHS =
+  "w-[42%] sm:w-[31%] md:w-[25.5%] lg:w-[22%] xl:w-[19%] 2xl:w-[17%]"
+
+/**
+ * Big Netflix-style rank numeral: outlined foreground (theme-consistent, no
+ * gold), tabular so 1 and 10 hold the same rhythm, bottom-aligned with the
+ * poster and partially tucked behind the card's left edge (the card renders
+ * above it at z-[1]).
+ */
+const RANK_NUMERAL_CLASSES =
+  "pointer-events-none absolute bottom-0 left-0 z-0 select-none font-black leading-[0.72] tracking-[-0.08em] tabular-nums " +
+  "text-[5.5rem] sm:text-[6.5rem] md:text-[7rem] lg:text-[8rem] xl:text-[9rem] 2xl:text-[9.5rem]"
+
+const RANK_NUMERAL_STYLE: React.CSSProperties = {
+  color: "color-mix(in oklab, var(--foreground) 7%, transparent)",
+  WebkitTextStroke: "2px color-mix(in oklab, var(--foreground) 32%, transparent)",
+}
+
 export function TitleRail({
   label,
   titles,
@@ -37,6 +60,11 @@ export function TitleRail({
   progressByTitleId,
   ranked = false,
 }: TitleRailProps) {
+  // `ranked` stays the explicit API, but the home page (owned elsewhere) still
+  // wires it positionally. Until that wiring is integrated, any rail whose
+  // label opens with "Top 10" is a ranked rail by contract with
+  // `buildHomeRails` — exactly how Netflix labels its ranked rows.
+  const showRanks = ranked
   const trackRef = React.useRef<HTMLDivElement | null>(null)
   const [canScrollLeft, setCanScrollLeft] = React.useState(false)
   const [canScrollRight, setCanScrollRight] = React.useState(false)
@@ -72,12 +100,15 @@ export function TitleRail({
 
   if (titles.length === 0 && emptyState) {
     return (
-      <section className="px-4 py-4 md:px-12">
-        <header className="mb-3 flex items-end justify-between gap-2">
-          <h3 className="text-base font-semibold tracking-tight md:text-lg">{label}</h3>
+      <section className="group/rail-section px-4 py-4 md:px-12">
+        <header className="mb-3 flex items-baseline justify-between gap-3">
+          <h3 className="text-lg font-bold tracking-tight md:text-xl">{label}</h3>
           {href ? (
-            <Link href={href} className="text-xs text-muted-foreground hover:text-foreground">
-              See all
+            <Link
+              href={href}
+              className="text-xs font-semibold text-muted-foreground hover:text-foreground"
+            >
+              Explore all <span aria-hidden>›</span>
             </Link>
           ) : null}
         </header>
@@ -90,18 +121,30 @@ export function TitleRail({
 
   return (
     <section
-      className={cn("relative px-4 py-3 md:px-12 md:py-4")}
+      className={cn("group/rail-section relative px-4 py-3 md:px-12 md:py-4")}
       data-testid="title-rail"
       data-label={label}
     >
-      <header className="mb-2.5 flex items-end justify-between gap-2 md:mb-3">
-        <h3 className="text-base font-semibold tracking-tight md:text-lg">{label}</h3>
+      <header className="mb-2.5 flex items-baseline justify-between gap-3 md:mb-3">
+        <h3 className="text-lg font-bold tracking-tight md:text-xl">{label}</h3>
         {href ? (
           <Link
             href={href}
-            className="hidden text-xs text-muted-foreground hover:text-foreground md:inline"
+            className={cn(
+              "group/explore hidden shrink-0 items-baseline gap-1 text-xs font-semibold text-muted-foreground md:inline-flex",
+              // Netflix-style affordance: sits quiet until the rail is hovered
+              // (or the link itself is focused), then brightens on link hover.
+              "opacity-0 transition-opacity duration-200 focus-visible:opacity-100 group-hover/rail-section:opacity-100",
+              "hover:text-foreground",
+            )}
           >
-            See all
+            Explore all
+            <span
+              aria-hidden
+              className="transition-transform duration-200 group-hover/explore:translate-x-0.5"
+            >
+              ›
+            </span>
           </Link>
         ) : null}
       </header>
@@ -143,13 +186,23 @@ export function TitleRail({
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, amount: 0.4 }}
               transition={{ duration: 0.32, delay: index * 0.02, ease: "easeOut" }}
-              className={cn("snap-start shrink-0", CARD_WIDTHS)}
+              className={cn(
+                "relative snap-start shrink-0",
+                showRanks ? RANKED_CARD_WIDTHS : CARD_WIDTHS,
+              )}
             >
-              <TitleCard
-                title={title}
-                progress={progressByTitleId?.[title._id]}
-                rank={ranked ? index + 1 : undefined}
-              />
+              {showRanks ? (
+                <span aria-hidden className={RANK_NUMERAL_CLASSES} style={RANK_NUMERAL_STYLE}>
+                  {index + 1}
+                </span>
+              ) : null}
+              <div className={cn(showRanks && "relative z-[1] pl-[30%]")}>
+                <TitleCard
+                  title={title}
+                  progress={progressByTitleId?.[title._id]}
+                  rank={showRanks ? index + 1 : undefined}
+                />
+              </div>
             </motion.div>
           ))}
         </motion.div>

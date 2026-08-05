@@ -105,9 +105,13 @@ export function TopNav({ recommendations = [] }: TopNavProps) {
                 href={link.href}
                 data-testid={`nav-${link.name.toLowerCase().replace(/\s+/g, "-")}`}
                 className={cn(
+                  // House rule: active nav is foreground text, never gold —
+                  // gold stays reserved for the brand mark and primary CTAs.
                   "relative rounded-md px-3 py-1.5 text-[13px] transition-colors",
                   isActive
-                    ? "font-semibold text-gold"
+                    ? navOnDark
+                      ? "font-semibold text-white"
+                      : "font-semibold text-foreground"
                     : navOnDark
                       ? "font-medium text-white/72 hover:text-white"
                       : "font-medium text-muted-foreground hover:text-foreground",
@@ -117,7 +121,7 @@ export function TopNav({ recommendations = [] }: TopNavProps) {
                 {isActive ? (
                   <motion.span
                     layoutId="nav-active-pill"
-                    className="absolute inset-x-2 -bottom-0.5 h-0.5 rounded-full bg-primary"
+                    className="absolute inset-x-2 -bottom-0.5 h-0.5 rounded-full bg-current"
                     transition={{ type: "spring", stiffness: 320, damping: 32 }}
                   />
                 ) : null}
@@ -286,14 +290,15 @@ function MobileNav({ pathname }: { pathname: string }) {
               key={link.href}
               href={link.href}
               className={cn(
+                // Active = foreground, not gold (house nav rule).
                 "flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium",
-                isActive ? "text-primary" : "text-muted-foreground",
+                isActive ? "text-foreground" : "text-muted-foreground",
               )}
             >
               <HugeiconsIcon
                 icon={link.icon}
                 strokeWidth={2}
-                className={cn("size-5", isActive ? "text-primary" : "text-foreground/70")}
+                className={cn("size-5", isActive ? "text-foreground" : "text-foreground/70")}
               />
               {link.name}
             </Link>

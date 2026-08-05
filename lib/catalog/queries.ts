@@ -246,7 +246,92 @@ export async function buildHomeRails(authUserId: string | null): Promise<RailWit
       return { rail, titles }
     }),
   )
-  return applyKidFilterToRails(built, kidProfile)
+  // The two Top 10 rails lead the shelf order (right after the page's own
+  // Continue-watching rail), ahead of every configured genre/collection rail.
+  const top10Rails = await buildTop10Rails(kidMaturityFilter)
+  return applyKidFilterToRails([...top10Rails, ...built], kidProfile)
+}
+
+// ── Top 10 rails (derived, not stored) ──────────────────────────────────────
+
+/**
+ * Signals that read as "made in / made for Nigeria" in title metadata. Used by
+ * the editorially derived "Top 10 in Nigeria" rail below.
+ */
+const NIGERIA_MARKERS = /\b(nigeria|nigerian|nollywood|naija|lagos|yoruba|igbo)\b/i
+
+/**
+ * Shape a derived rail like a stored one so `RailWithTitles` consumers need no
+ * new fields. `kind: "trending"` is the honest fit in `VisionRailKind` — both
+ * rails are weight-driven, so no enum migration is required.
+ */
+function derivedRail(id: string, slug: string, label: string): CatalogRail {
+  return {
+    _id: id,
+    slug,
+    label,
+    kind: "trending",
+    position: 0,
+    isActive: true,
+    manualSlugs: [],
+    genreFilter: null,
+  }
+}
+
+/**
+ * Builds "Top 10 on Vision today" and "Top 10 in Nigeria".
+ *
+ * Rank source — `weight` first, `publishAt` as the tiebreak: `weight` is the
+ * platform's curated engagement proxy and the primary key of every catalogue
+ * sort in this file (`listTitles`), so the Top 10 is simply the first ten of
+ * the canonical order. Newer arrivals win ties, which keeps the row fresh as
+ * titles are seeded at overlapping weights.
+ *
+ * "Top 10 in Nigeria" is EDITORIALLY DERIVED, not geo-IP: Nigeria is the
+ * platform's home market, so titles carrying Nigerian markers (tags such as
+ * "nollywood"/"nigeria", or Nigerian signals in the metadata) lead in weight
+ * order, topped up with the wider catalogue rotated deterministically by day
+ * so the rail doesn't mirror the global Top 10.
+ */
+async function buildTop10Rails(
+  kidMaturityFilter: Record<string, unknown>,
+): Promise<RailWithTitles[]> {
+  let pool: CatalogTitle[] = []
+  try {
+    const docs = await VisionTitle.find({ status: "published", ...kidMaturityFilter })
+      .sort({ weight: -1, publishAt: -1, createdAt: -1 })
+      .limit(120)
+    pool = docs.map(serializeTitle)
+  } catch {
+    return []
+  }
+  // Nothing seeded yet — the mock/demo home path handles that world.
+  if (pool.length === 0) return []
+
+  const rails: RailWithTitles[] = [
+    {
+      rail: derivedRail("derived-top10-vision", "top-10-on-vision-today", "Top 10 on Vision today"),
+      titles: pool.slice(0, 10),
+    },
+  ]
+
+  const isNigerian = (t: CatalogTitle) =>
+    t.tags.some((tag) => NIGERIA_MARKERS.test(tag)) ||
+    NIGERIA_MARKERS.test(`${t.title} ${t.synopsis} ${t.genres.join(" ")} ${t.director}`)
+  const nigerian = pool.filter(isNigerian)
+  const rest = pool.filter((t) => !isNigerian(t))
+  // Day-seeded rotation: deterministic within a day, different across days.
+  const dayIndex = Math.floor(Date.now() / 86_400_000)
+  const offset = rest.length > 0 ? dayIndex % rest.length : 0
+  const nigeriaTitles = [...nigerian, ...rest.slice(offset), ...rest.slice(0, offset)].slice(0, 10)
+  if (nigeriaTitles.length >= 4) {
+    rails.push({
+      rail: derivedRail("derived-top10-nigeria", "top-10-in-nigeria", "Top 10 in Nigeria"),
+      titles: nigeriaTitles,
+    })
+  }
+
+  return rails
 }
 
 export async function listContinueWatching(

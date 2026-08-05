@@ -16,7 +16,11 @@ interface TitleCardProps {
   /** Optional progress overlay (0-1) used for Continue Watching. */
   progress?: number
   className?: string
-  /** Used by the Top 10 rail to render a giant outline number behind the card. */
+  /**
+   * Position in a Top 10 rail. The giant outlined numeral is rendered by
+   * `TitleRail` (it must crop behind the card's left edge, which is outside
+   * this card's overflow-hidden frame) — here it only feeds assistive tech.
+   */
   rank?: number
 }
 
@@ -115,18 +119,9 @@ export function TitleCard({
       <span className="sr-only" data-testid="title-name">
         {title.title}
       </span>
+      {rank !== undefined ? <span className="sr-only">Ranked {rank}</span> : null}
 
       <div className="relative h-full w-full overflow-hidden rounded-[inherit]">
-        {rank !== undefined ? (
-          <span
-            aria-hidden
-            className="pointer-events-none absolute bottom-0 left-0.5 z-10 select-none font-extrabold leading-none text-foreground/15 mix-blend-overlay"
-            style={{ fontSize: "clamp(2.5rem, 6vw, 5rem)" }}
-          >
-            {rank}
-          </span>
-        ) : null}
-
         <div className="absolute inset-0 overflow-hidden rounded-[inherit]">
           {art ? (
             <Image

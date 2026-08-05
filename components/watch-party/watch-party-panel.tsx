@@ -5,7 +5,15 @@ import * as Ably from "ably"
 import { useRouter, usePathname, useSearchParams } from "next/navigation"
 import type { Message, RealtimeChannel, Realtime as RealtimeClient, TokenRequest } from "ably"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Copy01Icon, UserMultipleIcon, PlayIcon, ArrowRight01Icon, SentIcon } from "@hugeicons/core-free-icons"
+import {
+  Copy01Icon,
+  UserMultipleIcon,
+  PlayIcon,
+  ArrowRight01Icon,
+  SentIcon,
+  Cancel01Icon,
+  Tick02Icon,
+} from "@hugeicons/core-free-icons"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -19,11 +27,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Avatar, AvatarFallback, AvatarImage, AvatarGroup } from "@/components/ui/avatar"
-import { useAuth } from "@/components/auth-provider"
-// Watch parties always need a *real* Clerk identity \u2014 the shared dev-auth user
-// would make every browser tab look like the same person and turn every guest
-// into the host. Pull straight from Clerk so each tab gets its own userId.
-import { useUser } from "@clerk/nextjs"
+import { useRealViewer } from "@/components/watch-party/use-real-viewer"
 import {
   createWatchParty,
   recordPlaybackState,
@@ -48,6 +52,8 @@ interface WatchPartyPanelProps {
   onSessionChange?: (session: WatchPartySnapshot | null) => void
   /** Fired when an Ably `session.status === "ended"` event is received. */
   onPartyEnded?: () => void
+  /** Hides the docked panel (the Ably connection stays alive — the panel stays mounted). */
+  onClose?: () => void
 }
 
 interface PlaybackMessage {
@@ -76,6 +82,11 @@ interface CommentMessage {
   /** Wall-clock send time (ISO). */
   sentAt: string
 }
+
+/** Chat rail entries: real messages plus inline system lines (joins/leaves). */
+type ChatItem =
+  | { kind: "comment"; message: CommentMessage }
+  | { kind: "system"; id: string; text: string; sentAt: string }
 
 type RealtimeStatus =
   | "idle"
@@ -127,7 +138,22 @@ function avatarSrcForMember(member: PresenceMember): string | undefined {
   return u
 }
 
+/** Every participant snapshot embeds the invite token in its inviteUrl. */
+function inviteTokenFromSession(session: WatchPartySnapshot | null): string | null {
+  if (!session) return null
+  try {
+    return new URL(session.inviteUrl).searchParams.get("token")
+  } catch {
+    return null
+  }
+}
+
 const DRIFT_TOLERANCE = 1.25
+const MAX_CHAT_ITEMS = 250
+
+function capChat(items: ChatItem[]): ChatItem[] {
+  return items.length > MAX_CHAT_ITEMS ? items.slice(items.length - MAX_CHAT_ITEMS) : items
+}
 
 export function WatchPartyPanel({
   asset,
@@ -138,29 +164,13 @@ export function WatchPartyPanel({
   startedAt,
   onSessionChange,
   onPartyEnded,
+  onClose,
 }: WatchPartyPanelProps) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const { user: fallbackUser } = useAuth()
-  // Prefer the real Clerk session for identity; fall back to the in-app
-  // AuthProvider only when Clerk isn\u2019t configured (covers local dev without
-  // Clerk keys). The Clerk hook returns the *signed-in* user even when the
-  // dev-auth bypass is active for the rest of the app.
-  const { user: clerkUser, isLoaded: clerkLoaded, isSignedIn: clerkSignedIn } = useUser()
-  const user: AuthUser | null = React.useMemo(() => {
-    if (clerkLoaded && clerkSignedIn && clerkUser) {
-      return {
-        userId: clerkUser.id,
-        email: clerkUser.primaryEmailAddress?.emailAddress ?? "",
-        firstName: clerkUser.firstName ?? "",
-        lastName: clerkUser.lastName ?? "",
-        imageUrl: clerkUser.imageUrl ?? "",
-        isLoaded: true,
-      }
-    }
-    return fallbackUser
-  }, [clerkLoaded, clerkSignedIn, clerkUser, fallbackUser])
+  // Real Clerk identity (matches server-side requireRealAuthUser / token route).
+  const user = useRealViewer()
   const { profile } = useProfile()
   const profileRef = React.useRef(profile)
   profileRef.current = profile
@@ -172,9 +182,9 @@ export function WatchPartyPanel({
   const [endPartyOpen, setEndPartyOpen] = React.useState(false)
   const [members, setMembers] = React.useState<PresenceMember[]>([])
   const [realtimeStatus, setRealtimeStatus] = React.useState<RealtimeStatus>("idle")
-  const [comments, setComments] = React.useState<CommentMessage[]>([])
+  const [chatItems, setChatItems] = React.useState<ChatItem[]>([])
   const [draftComment, setDraftComment] = React.useState("")
-  const [activeTab, setActiveTab] = React.useState<"people" | "chat">("chat")
+  const [copiedInvite, setCopiedInvite] = React.useState(false)
   const [joinCodeInput, setJoinCodeInput] = React.useState("")
   const [joining, setJoining] = React.useState(false)
   const channelRef = React.useRef<RealtimeChannel | null>(null)
@@ -182,15 +192,30 @@ export function WatchPartyPanel({
   const onPartyEndedRef = React.useRef(onPartyEnded)
   onPartyEndedRef.current = onPartyEnded
   const isHost = !!session && !!user && session.hostId === user.userId
+
+  // Latest-value refs so the (deliberately narrow-dep) connection effect and
+  // long-lived Ably callbacks never read stale closures — and never force a
+  // full reconnect just because an object identity changed.
+  const sessionRef = React.useRef(session)
+  sessionRef.current = session
+  const userRef = React.useRef(user)
+  userRef.current = user
+  const isHostRef = React.useRef(isHost)
+  isHostRef.current = isHost
+  const initialTokenRef = React.useRef(initialToken)
+  initialTokenRef.current = initialToken
+
   const lastBroadcastRef = React.useRef<number>(0)
   const lastDbPersistRef = React.useRef<number>(0)
   const broadcastVersionRef = React.useRef(0)
   const lastGuestVersionRef = React.useRef(0)
   const guestSyncedInviteRef = React.useRef<string | null>(null)
-  // `startedAt` ticks ~4x/second from the player. Capturing it in a ref means
-  // the `startSession` callback can read the latest position without listing
-  // it as a dependency — which previously caused the auto-start effect to
-  // refire constantly and queue dozens of `createWatchParty` calls.
+  /** Codes we saw end via Ably — stops the hydrate effect from re-fetching a dead party. */
+  const endedCodesRef = React.useRef<Set<string>>(new Set())
+  // `startedAt` can tick from the player. Capturing it in a ref means the
+  // `startSession` callback can read the latest position without listing it as
+  // a dependency — which previously caused the auto-start effect to refire
+  // constantly and queue dozens of `createWatchParty` calls.
   const startedAtRef = React.useRef(startedAt)
   startedAtRef.current = startedAt
   // Single-flight gate for the auto-start (`?party=new`) effect.
@@ -215,7 +240,7 @@ export function WatchPartyPanel({
         version,
         fromHost: true,
       }
-      void channel.publish("playback", message)
+      void channel.publish("playback", message).catch(() => {})
       if (options?.persist) {
         lastDbPersistRef.current = Date.now()
         void recordPlaybackState(inviteCode, { isPlaying, positionSeconds })
@@ -264,6 +289,7 @@ export function WatchPartyPanel({
 
   React.useEffect(() => {
     if (!initialMode || initialMode === "new" || session) return
+    if (endedCodesRef.current.has(initialMode.toUpperCase())) return
     let cancelled = false
     setHydrateError(null)
     setPending(true)
@@ -310,25 +336,39 @@ export function WatchPartyPanel({
     broadcastVersionRef.current = Math.max(broadcastVersionRef.current, session.playback.version)
   }, [session, user])
 
+  /**
+   * The realtime connection. Deps are the two PRIMITIVES that define a room
+   * membership (invite code + viewer id) — object identities intentionally
+   * stay out so a re-render can never silently tear down and re-dial Ably.
+   */
+  const sessionInviteCode = session?.inviteCode ?? null
+  const viewerUserId = user?.userId ?? null
   React.useEffect(() => {
-    if (!session || !user) return
+    const sess = sessionRef.current
+    const usr = userRef.current
+    if (!sess || !usr || !sessionInviteCode || !viewerUserId) return
     setRealtimeStatus("connecting")
     const realtime = new Ably.Realtime({
       authCallback: async (_params, callback) => {
         try {
+          // The invite token doubles as a join credential: if this viewer's
+          // participant row hasn't landed yet the route joins them instead of
+          // returning a dead 403.
+          const latest = sessionRef.current
+          const token = inviteTokenFromSession(latest) ?? initialTokenRef.current ?? undefined
           const response = await fetch("/api/watch-party/token", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ inviteCode: session.inviteCode }),
+            body: JSON.stringify({ inviteCode: sessionInviteCode, token }),
           })
-          if (!response.ok) throw new Error("Failed to mint token")
+          if (!response.ok) throw new Error(`Failed to mint token (${response.status})`)
           const data = (await response.json()) as { tokenRequest: TokenRequest }
           callback(null, data.tokenRequest)
         } catch (err) {
           callback(err instanceof Error ? err.message : "Failed to mint token", null)
         }
       },
-      clientId: user.userId,
+      clientId: viewerUserId,
     })
     realtimeRef.current = realtime
 
@@ -339,7 +379,7 @@ export function WatchPartyPanel({
     }
     realtime.connection.on(onConnectionStateChange)
 
-    const channel = realtime.channels.get(session.channel)
+    const channel = realtime.channels.get(sess.channel)
     channelRef.current = channel
 
     const onMessage = (message: Message) => {
@@ -347,8 +387,16 @@ export function WatchPartyPanel({
       const data = message.data as PlaybackMessage
       if (!data || typeof data.version !== "number") return
 
+      // Host-authoritative sync: Ably stamps the publisher's authenticated
+      // clientId on every message (it comes from the minted token, so it
+      // cannot be spoofed). Only the party host's playback events count —
+      // everyone else's are dropped even though their token can publish
+      // (publish is needed for chat).
+      const hostId = sessionRef.current?.hostId
+      if (!hostId || message.clientId !== hostId) return
+
       const node = playerRef.current as HTMLVideoElement | null
-      if (!node || isHost) return
+      if (!node || isHostRef.current) return
       if (data.version <= lastGuestVersionRef.current) return
       lastGuestVersionRef.current = data.version
 
@@ -361,7 +409,7 @@ export function WatchPartyPanel({
         : data.positionSeconds
       const drift = Math.abs(Number(node.currentTime ?? 0) - targetPosition)
 
-      // Single seek path \u2014 only correct when drift is meaningful enough to
+      // Single seek path — only correct when drift is meaningful enough to
       // justify the audible jump. Below DRIFT_TOLERANCE we let natural playback
       // close the gap on its own.
       if (drift > DRIFT_TOLERANCE) {
@@ -382,11 +430,13 @@ export function WatchPartyPanel({
     /**
      * Server broadcasts `{ status: "ended" }` when the host ends the party.
      * Tear down playback sync and let the parent show a banner so guests
-     * aren\u2019t left wondering why the connection went quiet.
+     * aren’t left wondering why the connection went quiet.
      */
     const onSessionMessage = (message: Message) => {
       const data = message.data as SessionMessage | undefined
       if (!data || data.status !== "ended") return
+      const code = sessionRef.current?.inviteCode
+      if (code) endedCodesRef.current.add(code.toUpperCase())
       const node = playerRef.current as HTMLVideoElement | null
       if (node && !node.paused) node.pause()
       setSession(null)
@@ -397,11 +447,9 @@ export function WatchPartyPanel({
     const onCommentMessage = (message: Message) => {
       const data = message.data as CommentMessage | undefined
       if (!data || typeof data.text !== "string") return
-      setComments((prev) => {
-        if (prev.some((c) => c.id === data.id)) return prev
-        const next = [...prev, data]
-        // Cap at 200 in memory so long sessions don't bloat re-renders.
-        return next.length > 200 ? next.slice(next.length - 200) : next
+      setChatItems((prev) => {
+        if (prev.some((item) => item.kind === "comment" && item.message.id === data.id)) return prev
+        return capChat([...prev, { kind: "comment", message: data }])
       })
     }
 
@@ -413,47 +461,100 @@ export function WatchPartyPanel({
     void channel
       .history({ limit: 50 })
       .then((page) => {
-        const recent: CommentMessage[] = []
+        const recent: ChatItem[] = []
         for (const msg of page.items) {
           if (msg.name !== "comment") continue
           const data = msg.data as CommentMessage | undefined
-          if (data && typeof data.text === "string") recent.push(data)
+          if (data && typeof data.text === "string") recent.push({ kind: "comment", message: data })
         }
         // history() returns newest-first; flip to chronological order.
         recent.reverse()
         if (recent.length > 0) {
-          setComments((prev) => {
-            const seen = new Set(prev.map((c) => c.id))
-            const merged = [...recent.filter((c) => !seen.has(c.id)), ...prev]
-            return merged.length > 200 ? merged.slice(merged.length - 200) : merged
+          setChatItems((prev) => {
+            const seen = new Set(
+              prev.filter((i) => i.kind === "comment").map((i) => (i as { message: CommentMessage }).message.id),
+            )
+            const merged = [
+              ...recent.filter((i) => i.kind === "comment" && !seen.has(i.message.id)),
+              ...prev,
+            ]
+            return capChat(merged)
           })
         }
       })
       .catch(() => {
-        // history may be disabled for the channel \u2014 silently degrade.
+        // history may be disabled for the channel — silently degrade.
       })
 
-    void channel.presence.enter(
-      buildPresenceMember(user, session, profileRef.current),
-    )
+    void channel.presence
+      .enter(buildPresenceMember(usr, sess, profileRef.current))
+      .catch(() => {})
 
     const refreshPresence = async () => {
-      const list = await channel.presence.get()
-      setMembers(list.map((member) => member.data as PresenceMember))
+      try {
+        const list = await channel.presence.get()
+        // The same person can hold presence from two tabs/devices — collapse
+        // by authUserId so the roster (and React keys) stay unique.
+        const byUser = new Map<string, PresenceMember>()
+        for (const member of list) {
+          const data = member.data as PresenceMember | undefined
+          if (!data?.authUserId) continue
+          byUser.set(data.authUserId, data)
+        }
+        setMembers([...byUser.values()])
+      } catch {
+        // channel may be detaching during teardown
+      }
     }
     void refreshPresence()
-    channel.presence.subscribe(["enter", "leave", "update"], refreshPresence)
+
+    /** Presence → members list + inline join/leave system lines in the chat. */
+    const pushSystemLine = (text: string) => {
+      setChatItems((prev) =>
+        capChat([
+          ...prev,
+          {
+            kind: "system",
+            id: `s-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            text,
+            sentAt: new Date().toISOString(),
+          },
+        ]),
+      )
+    }
+    const nameOf = (pm: Ably.PresenceMessage): string => {
+      const data = pm.data as PresenceMember | undefined
+      return data?.displayName?.trim() || "Someone"
+    }
+    const onPresenceEnter = (pm: Ably.PresenceMessage) => {
+      void refreshPresence()
+      if (pm.clientId && pm.clientId !== viewerUserId) {
+        pushSystemLine(`${nameOf(pm)} joined the party`)
+      }
+    }
+    const onPresenceLeave = (pm: Ably.PresenceMessage) => {
+      void refreshPresence()
+      if (pm.clientId && pm.clientId !== viewerUserId) {
+        pushSystemLine(`${nameOf(pm)} left`)
+      }
+    }
+    const onPresenceUpdate = () => void refreshPresence()
+    channel.presence.subscribe("enter", onPresenceEnter)
+    channel.presence.subscribe("leave", onPresenceLeave)
+    channel.presence.subscribe("update", onPresenceUpdate)
 
     return () => {
       channel.unsubscribe()
+      channel.presence.unsubscribe()
       void channel.presence.leave().catch(() => {})
       realtime.connection.off(onConnectionStateChange)
       realtime.close()
       channelRef.current = null
       realtimeRef.current = null
       setRealtimeStatus("idle")
+      setMembers([])
     }
-  }, [session, user, isHost, playerRef])
+  }, [sessionInviteCode, viewerUserId, playerRef])
 
   React.useEffect(() => {
     const channel = channelRef.current
@@ -497,7 +598,7 @@ export function WatchPartyPanel({
 
   /** Clear chat state when the active session changes. */
   React.useEffect(() => {
-    setComments([])
+    setChatItems([])
     setDraftComment("")
   }, [session?.inviteCode])
 
@@ -528,17 +629,21 @@ export function WatchPartyPanel({
         sentAt: new Date().toISOString(),
       }
       // Optimistic local insert so the sender sees their message immediately.
-      setComments((prev) => {
-        const next = [...prev, message]
-        return next.length > 200 ? next.slice(next.length - 200) : next
-      })
-      void channel.publish("comment", message)
+      setChatItems((prev) => capChat([...prev, { kind: "comment", message }]))
       setDraftComment("")
+      void channel.publish("comment", message).catch(() => {
+        // Publish was rejected (capability / connection). Remove the optimistic
+        // copy so the sender isn't fooled into thinking anyone saw it.
+        setChatItems((prev) =>
+          prev.filter((item) => !(item.kind === "comment" && item.message.id === message.id)),
+        )
+        setError("Message didn’t send — check your connection and try again.")
+      })
     },
     [session, user, profile, playerRef],
   )
 
-  /** Resolve a 6-character invite code typed by a guest into an active session. */
+  /** Resolve an invite code typed by a guest into an active session. */
   const joinByCode = React.useCallback(async () => {
     const code = joinCodeInput.trim().toUpperCase()
     if (!code) return
@@ -551,7 +656,7 @@ export function WatchPartyPanel({
         // they're not in the participants list yet. Direct them there.
         throw new Error(
           res.error === "You're not part of this watch party"
-            ? "Ask the host to share the full invite link \u2014 the code alone isn\u2019t enough to join."
+            ? "Ask the host to share the full invite link — the code alone isn’t enough to join."
             : res.error ?? "Could not join that party.",
         )
       }
@@ -571,6 +676,7 @@ export function WatchPartyPanel({
     try {
       const res = await endWatchParty(session.inviteCode)
       if (!res.success) throw new Error(res.error ?? "Failed to end party")
+      endedCodesRef.current.add(session.inviteCode.toUpperCase())
       setSession(null)
       setEndPartyOpen(false)
       const params = new URLSearchParams(searchParams.toString())
@@ -584,97 +690,144 @@ export function WatchPartyPanel({
     }
   }, [session, searchParams, pathname, router])
 
+  const copyInvite = React.useCallback(() => {
+    if (!session) return
+    void navigator.clipboard.writeText(session.inviteUrl).then(() => {
+      setCopiedInvite(true)
+      window.setTimeout(() => setCopiedInvite(false), 1_600)
+    })
+  }, [session])
+
+  const header = (
+    <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 px-4 py-3">
+      <div className="flex min-w-0 items-center gap-2">
+        <HugeiconsIcon icon={UserMultipleIcon} strokeWidth={2} className="size-4 text-primary" />
+        <p className="truncate text-sm font-semibold tracking-tight">Watch Together</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        {session ? <ConnectionPill status={realtimeStatus} /> : null}
+        {onClose ? (
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex size-7 items-center justify-center rounded-full text-muted-foreground transition hover:bg-white/10 hover:text-vision-stage-foreground"
+            aria-label="Hide watch party panel"
+          >
+            <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} className="size-3.5" />
+          </button>
+        ) : null}
+      </div>
+    </div>
+  )
+
   if (!session) {
     if (hydrateError && initialMode && initialMode !== "new") {
       return (
-        <div className="flex flex-col gap-3 p-4 text-sm text-vision-stage-foreground">
-          <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            {hydrateError}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Open your invite link (with token) if you haven&apos;t joined yet, or ask the host to
-            send a fresh link from Watch Together.
-          </p>
+        <div className="flex h-full min-h-0 flex-col text-sm text-vision-stage-foreground">
+          {header}
+          <div className="flex flex-col gap-3 p-4">
+            <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {hydrateError}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Open your invite link (with token) if you haven&apos;t joined yet, or ask the host to
+              send a fresh link from Watch Together.
+            </p>
+          </div>
         </div>
       )
     }
     if (pending && initialMode && initialMode !== "new") {
       return (
-        <div className="p-4 text-sm text-muted-foreground">Connecting to the watch party…</div>
+        <div className="flex h-full min-h-0 flex-col text-sm">
+          {header}
+          <div className="flex flex-1 items-center justify-center gap-2 p-4 text-sm text-muted-foreground">
+            <span className="inline-block size-1.5 animate-pulse rounded-full bg-warning" />
+            Connecting to the watch party…
+          </div>
+        </div>
       )
     }
 
     return (
-      <div className="flex flex-col gap-4 p-4 text-sm text-vision-stage-foreground">
-        {!user ? (
-          <p className="rounded-md border border-warning/35 bg-warning/10 px-3 py-2 text-xs text-warning">
-            Sign in to host or join a watch party.
-          </p>
-        ) : null}
-        <p>
-          Watch this together with friends. The host controls play, pause, and seek; everyone else
-          stays in sync over the network.
-        </p>
-        <Button onClick={() => void startSession()} disabled={pending || !user} size="lg" className="rounded-full">
-          <HugeiconsIcon icon={UserMultipleIcon} strokeWidth={2.5} className="size-4" />
-          {pending ? "Starting…" : "Start a watch party"}
-        </Button>
-
-        {/* Secondary path \u2014 a guest who already has the 6-char code (e.g. via DM)
-            can drop it here instead of opening the full invite link. */}
-        {user ? (
-          <div className="rounded-xl border border-border/30 bg-black/20 p-3">
-            <p className="text-xs uppercase tracking-wider text-muted-foreground">
-              Already invited?
+      <div className="flex h-full min-h-0 flex-col text-sm text-vision-stage-foreground">
+        {header}
+        <div className="flex flex-col gap-4 overflow-y-auto p-4">
+          {!user ? (
+            <p className="rounded-md border border-warning/35 bg-warning/10 px-3 py-2 text-xs text-warning">
+              Sign in to host or join a watch party.
             </p>
-            <form
-              className="mt-2 flex gap-2"
-              onSubmit={(e) => {
-                e.preventDefault()
-                void joinByCode()
-              }}
-            >
-              <Input
-                value={joinCodeInput}
-                onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase().slice(0, 8))}
-                placeholder="Party code"
-                className="h-9 flex-1 font-mono uppercase tracking-widest"
-                aria-label="Watch party code"
-              />
-              <Button
-                type="submit"
-                size="sm"
-                disabled={joining || joinCodeInput.trim().length === 0}
-                className="rounded-full"
+          ) : null}
+          <p>
+            Watch this together with friends — synced playback, live chat, and everyone who&apos;s in
+            the room. The host controls play, pause, and seek.
+          </p>
+          <Button
+            onClick={() => void startSession()}
+            disabled={pending || !user}
+            size="lg"
+            className="rounded-full"
+          >
+            <HugeiconsIcon icon={UserMultipleIcon} strokeWidth={2.5} className="size-4" />
+            {pending ? "Starting…" : "Start a watch party"}
+          </Button>
+
+          {/* Secondary path — a guest who already has the code (e.g. via DM)
+              can drop it here instead of opening the full invite link. */}
+          {user ? (
+            <div className="rounded-xl border border-border/30 bg-black/20 p-3">
+              <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                Already invited?
+              </p>
+              <form
+                className="mt-2 flex gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  void joinByCode()
+                }}
               >
-                {joining ? "Joining…" : "Join"}
-                {!joining ? (
-                  <HugeiconsIcon icon={ArrowRight01Icon} strokeWidth={2} className="size-3.5" />
-                ) : null}
-              </Button>
-            </form>
-            <p className="mt-2 text-[11px] text-muted-foreground">
-              The host\u2019s link includes a token that adds you to the session. Joining by code
-              alone only works after you\u2019ve already opened that link once.
-            </p>
-          </div>
-        ) : null}
+                <Input
+                  value={joinCodeInput}
+                  onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase().slice(0, 8))}
+                  placeholder="Party code"
+                  className="h-9 flex-1 font-mono uppercase tracking-widest"
+                  aria-label="Watch party code"
+                />
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={joining || joinCodeInput.trim().length === 0}
+                  className="rounded-full"
+                >
+                  {joining ? "Joining…" : "Join"}
+                  {!joining ? (
+                    <HugeiconsIcon icon={ArrowRight01Icon} strokeWidth={2} className="size-3.5" />
+                  ) : null}
+                </Button>
+              </form>
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                The host’s link includes a token that adds you to the session. Joining by code
+                alone only works after you’ve already opened that link once.
+              </p>
+            </div>
+          ) : null}
 
-        {error ? (
-          <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            {error}
+          {error ? (
+            <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {error}
+            </p>
+          ) : null}
+          <p className="text-xs text-muted-foreground">
+            Resume point ≈ {Math.floor(startedAt)}s when you start. Guests sync to the host as soon
+            as they connect.
           </p>
-        ) : null}
-        <p className="text-xs text-muted-foreground">
-          Resume point ≈ {Math.floor(startedAt)}s when you start. Guests sync to the host as soon as
-          they connect.
-        </p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="flex h-full flex-col gap-4 p-4 text-sm">
+    <div className="flex h-full min-h-0 flex-col text-sm">
       <Dialog open={endPartyOpen} onOpenChange={setEndPartyOpen}>
         <DialogContent showCloseButton={false} className="sm:max-w-md">
           <DialogHeader>
@@ -700,153 +853,116 @@ export function WatchPartyPanel({
         </DialogContent>
       </Dialog>
 
-      <div className="rounded-xl border border-border/30 bg-black/30 p-4">
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">Invite link</p>
-          <ConnectionPill status={realtimeStatus} />
-        </div>
-        <div className="mt-1.5 flex items-center gap-2">
-          <code className="line-clamp-1 flex-1 truncate rounded-md bg-black/40 px-2 py-1.5 text-xs text-white/90">
-            {session.inviteUrl}
-          </code>
-          <Button
-            variant="glass"
-            size="icon-sm"
-            onClick={() => {
-              void navigator.clipboard.writeText(session.inviteUrl)
-            }}
-            aria-label="Copy invite link"
-          >
-            <HugeiconsIcon icon={Copy01Icon} strokeWidth={2} />
-          </Button>
-        </div>
-        <p className="mt-2 text-[11px] text-muted-foreground">
-          Code <span className="font-mono">{session.inviteCode}</span> · expires{" "}
-          {new Date(session.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-        </p>
-      </div>
+      {header}
 
-      <div className="flex items-center gap-1 rounded-full bg-black/30 p-1 text-xs">
-        <button
-          type="button"
-          onClick={() => setActiveTab("chat")}
-          className={cn(
-            "flex-1 rounded-full px-3 py-1.5 font-medium transition",
-            activeTab === "chat"
-              ? "bg-primary text-primary-foreground"
-              : "text-muted-foreground hover:text-vision-stage-foreground",
-          )}
-        >
-          Live chat
-          {comments.length > 0 ? (
-            <span className="ml-1.5 rounded-full bg-black/30 px-1.5 py-0.5 text-[10px]">
-              {comments.length}
-            </span>
+      {/* Who's here — Ably presence, always visible above the chat. */}
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 px-4 py-2.5">
+        <div className="flex min-w-0 items-center gap-2.5">
+          {members.length > 0 ? (
+            <AvatarGroup>
+              {members.slice(0, 5).map((member) => (
+                <Avatar key={member.authUserId} size="sm" title={member.displayName}>
+                  <AvatarImage src={avatarSrcForMember(member)} alt="" />
+                  <AvatarFallback>{member.displayName.slice(0, 1).toUpperCase()}</AvatarFallback>
+                </Avatar>
+              ))}
+            </AvatarGroup>
           ) : null}
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("people")}
-          className={cn(
-            "flex-1 rounded-full px-3 py-1.5 font-medium transition",
-            activeTab === "people"
-              ? "bg-primary text-primary-foreground"
-              : "text-muted-foreground hover:text-vision-stage-foreground",
-          )}
-        >
-          People
-          <span className="ml-1.5 rounded-full bg-black/30 px-1.5 py-0.5 text-[10px]">
-            {members.length}
-          </span>
-        </button>
-      </div>
-
-      {activeTab === "chat" ? (
-        <ChatPane
-          comments={comments}
-          draft={draftComment}
-          onDraftChange={setDraftComment}
-          onSend={() => sendComment(draftComment)}
-          currentUserId={user?.userId ?? null}
-        />
-      ) : (
-        <div>
-          {members.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Waiting for friends to join\u2026</p>
-          ) : (
-            <div className="flex flex-col gap-2">
-              <AvatarGroup>
-                {members.slice(0, 6).map((member) => (
-                  <Avatar key={member.authUserId} size="default">
-                    <AvatarImage src={avatarSrcForMember(member)} alt="" />
-                    <AvatarFallback>
-                      {member.displayName.slice(0, 1).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                ))}
-              </AvatarGroup>
-              <ul className="flex flex-col gap-1 text-xs">
-                {members.map((member) => (
-                  <li
-                    key={member.authUserId}
-                    className={cn(
-                      "flex items-center justify-between rounded-md px-1.5 py-1",
-                      member.isHost ? "bg-primary/15 text-primary-foreground" : "text-vision-stage-foreground/80",
-                    )}
-                  >
-                    <span>{member.displayName}</span>
-                    {member.isHost ? (
-                      <span className="rounded-full bg-primary/30 px-1.5 py-0.5 text-[10px] uppercase tracking-wider">
-                        Host
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground">Guest</span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          <p className="truncate text-xs text-muted-foreground" aria-live="polite">
+            {members.length === 0
+              ? "Waiting for friends to join…"
+              : summarizeMembers(members, user?.userId ?? null)}
+          </p>
         </div>
-      )}
-
-      <div className="rounded-xl border border-border/30 bg-black/20 p-3 text-xs text-muted-foreground">
-        <p className="flex items-center gap-2 font-medium text-vision-stage-foreground">
-          <HugeiconsIcon icon={PlayIcon} strokeWidth={2} className="size-4 text-primary" />
-          {isHost ? "You are hosting" : "Following the host"}
-        </p>
-        <p className="mt-1">
-          {isHost
-            ? "Only you can pause, seek, or scrub. Changes sync to guests right away."
-            : "Playback is locked to the host. You can still change volume, captions, and fullscreen."}
-        </p>
+        <span className="shrink-0 rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-medium text-vision-stage-foreground/80">
+          {members.length} here
+        </span>
       </div>
 
-      {isHost ? (
+      {/* Invite — compact row; the full link goes to the clipboard. */}
+      <div className="flex shrink-0 items-center gap-2 border-b border-white/10 px-4 py-2.5">
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Invite</p>
+          <p className="truncate font-mono text-xs text-vision-stage-foreground/90">
+            {session.inviteCode}
+            <span className="ml-2 font-sans text-[10px] text-muted-foreground">
+              expires{" "}
+              {new Date(session.expiresAt).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </span>
+          </p>
+        </div>
         <Button
-          variant="destructive"
-          className="rounded-full"
-          disabled={endingParty}
-          onClick={() => setEndPartyOpen(true)}
+          variant="glass"
+          size="sm"
+          className="shrink-0 rounded-full"
+          onClick={copyInvite}
+          aria-label="Copy invite link"
         >
-          End party for everyone
+          <HugeiconsIcon
+            icon={copiedInvite ? Tick02Icon : Copy01Icon}
+            strokeWidth={2}
+            className="size-3.5"
+          />
+          {copiedInvite ? "Copied" : "Copy link"}
         </Button>
-      ) : null}
+      </div>
 
-      {error ? (
-        <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-          {error}
+      {/* Live chat fills the rail. */}
+      <ChatPane
+        items={chatItems}
+        draft={draftComment}
+        onDraftChange={setDraftComment}
+        onSend={() => sendComment(draftComment)}
+        currentUserId={user?.userId ?? null}
+        connected={realtimeStatus === "connected"}
+      />
+
+      <div className="shrink-0 border-t border-white/10 px-4 py-3">
+        <p className="flex items-center gap-2 text-xs text-muted-foreground">
+          <HugeiconsIcon icon={PlayIcon} strokeWidth={2} className="size-3.5 text-primary" />
+          {isHost
+            ? "You’re hosting — play, pause, and seek sync to everyone."
+            : "Following the host — playback stays in sync automatically."}
         </p>
-      ) : null}
+
+        {isHost ? (
+          <Button
+            variant="destructive"
+            size="sm"
+            className="mt-2.5 w-full rounded-full"
+            disabled={endingParty}
+            onClick={() => setEndPartyOpen(true)}
+          >
+            End party for everyone
+          </Button>
+        ) : null}
+
+        {error ? (
+          <p className="mt-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            {error}
+          </p>
+        ) : null}
+      </div>
     </div>
   )
 }
 
+/** "You, Ada + 2 more" style presence summary. */
+function summarizeMembers(members: PresenceMember[], currentUserId: string | null): string {
+  const names = members.map((m) =>
+    m.authUserId === currentUserId ? "You" : m.displayName.split(" ")[0] || m.displayName,
+  )
+  // Put "You" first when present.
+  names.sort((a, b) => (a === "You" ? -1 : b === "You" ? 1 : 0))
+  if (names.length <= 3) return names.join(", ")
+  return `${names.slice(0, 3).join(", ")} + ${names.length - 3} more`
+}
+
 function ConnectionPill({ status }: { status: RealtimeStatus }) {
-  const config: Record<
-    RealtimeStatus,
-    { label: string; dot: string; text: string }
-  > = {
+  const config: Record<RealtimeStatus, { label: string; dot: string; text: string }> = {
     idle: { label: "Idle", dot: "bg-muted-foreground/40", text: "text-muted-foreground" },
     connecting: { label: "Connecting", dot: "bg-warning animate-pulse", text: "text-warning" },
     connected: { label: "Live", dot: "bg-success", text: "text-success" },
@@ -854,7 +970,9 @@ function ConnectionPill({ status }: { status: RealtimeStatus }) {
     suspended: { label: "Offline", dot: "bg-orange-400", text: "text-orange-200" },
     failed: { label: "Disconnected", dot: "bg-destructive", text: "text-destructive" },
   }
-  const view = config[status]
+  // Ably can surface transitional states we don't chart (closing/closed) —
+  // fall back instead of crashing the rail.
+  const view = config[status] ?? config.connecting
   return (
     <span
       className={cn(
@@ -879,14 +997,15 @@ function formatVideoTime(totalSeconds: number): string {
 }
 
 interface ChatPaneProps {
-  comments: CommentMessage[]
+  items: ChatItem[]
   draft: string
   onDraftChange: (value: string) => void
   onSend: () => void
   currentUserId: string | null
+  connected: boolean
 }
 
-function ChatPane({ comments, draft, onDraftChange, onSend, currentUserId }: ChatPaneProps) {
+function ChatPane({ items, draft, onDraftChange, onSend, currentUserId, connected }: ChatPaneProps) {
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
 
   // Auto-scroll to the newest message whenever the list grows.
@@ -894,7 +1013,7 @@ function ChatPane({ comments, draft, onDraftChange, onSend, currentUserId }: Cha
     const node = scrollRef.current
     if (!node) return
     node.scrollTop = node.scrollHeight
-  }, [comments.length])
+  }, [items.length])
 
   const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -902,39 +1021,53 @@ function ChatPane({ comments, draft, onDraftChange, onSend, currentUserId }: Cha
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2">
+    <div className="flex min-h-0 flex-1 flex-col">
       <div
         ref={scrollRef}
-        className="scrollbar-none flex max-h-[40vh] min-h-32 flex-1 flex-col gap-2 overflow-y-auto rounded-xl border border-border/30 bg-black/20 p-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="scrollbar-none flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4 py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        {comments.length === 0 ? (
-          <p className="m-auto text-center text-xs text-muted-foreground">
-            No messages yet. Drop a reaction as you watch \u2014 everyone in the party will see it
-            in real time.
+        {items.length === 0 ? (
+          <p className="m-auto max-w-52 text-center text-xs text-muted-foreground">
+            No messages yet. Drop a reaction as you watch — everyone in the party sees it in real
+            time.
           </p>
         ) : (
-          comments.map((c) => {
+          items.map((item) => {
+            if (item.kind === "system") {
+              return (
+                <p
+                  key={item.id}
+                  className="my-0.5 text-center text-[10px] uppercase tracking-wider text-muted-foreground/80"
+                >
+                  {item.text}
+                </p>
+              )
+            }
+            const c = item.message
             const mine = c.authorId === currentUserId
             return (
               <div
                 key={c.id}
-                className={cn(
-                  "flex w-full gap-2",
-                  mine ? "flex-row-reverse text-right" : "flex-row",
-                )}
+                className={cn("flex w-full gap-2", mine ? "flex-row-reverse text-right" : "flex-row")}
               >
                 <Avatar size="sm">
                   <AvatarImage src={c.authorAvatar || undefined} alt="" />
-                  <AvatarFallback>
-                    {c.authorName.slice(0, 1).toUpperCase()}
-                  </AvatarFallback>
+                  <AvatarFallback>{c.authorName.slice(0, 1).toUpperCase()}</AvatarFallback>
                 </Avatar>
                 <div className={cn("flex min-w-0 max-w-[80%] flex-col gap-0.5", mine && "items-end")}>
                   <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                     <span className="truncate font-medium text-vision-stage-foreground/85">
                       {mine ? "You" : c.authorName}
                     </span>
-                    <span className="font-mono">{formatVideoTime(c.videoTimeSeconds)}</span>
+                    <span
+                      className="font-mono"
+                      title={new Date(c.sentAt).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    >
+                      {formatVideoTime(c.videoTimeSeconds)}
+                    </span>
                   </div>
                   <p
                     className={cn(
@@ -953,11 +1086,11 @@ function ChatPane({ comments, draft, onDraftChange, onSend, currentUserId }: Cha
         )}
       </div>
 
-      <form className="flex items-center gap-2" onSubmit={onSubmit}>
+      <form className="flex shrink-0 items-center gap-2 border-t border-white/10 px-4 py-2.5" onSubmit={onSubmit}>
         <Input
           value={draft}
           onChange={(e) => onDraftChange(e.target.value)}
-          placeholder="Say something\u2026"
+          placeholder={connected ? "Say something…" : "Connecting…"}
           className="h-9 flex-1"
           maxLength={500}
           aria-label="Live chat message"

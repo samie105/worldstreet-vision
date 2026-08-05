@@ -35,12 +35,14 @@ function SheetContent({
 }) {
   return (
     <SheetPrimitive.Portal keepMounted={keepMounted}>
-      <SheetPrimitive.Backdrop className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0" />
+      <SheetPrimitive.Backdrop className="fixed inset-0 z-50 bg-scrim backdrop-blur-sm data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0" />
+      {/* House surface: card fill; the leading-edge hairline comes from the
+          side borders below (rows/edges may keep hairlines in dark). */}
       <SheetPrimitive.Popup
         data-slot="sheet-content"
         data-side={side}
         className={cn(
-          "fixed z-50 flex flex-col gap-4 bg-background bg-clip-padding text-sm shadow-2xl ring-1 ring-foreground/10 transition duration-200 ease-in-out",
+          "fixed z-50 flex flex-col gap-4 bg-card bg-clip-padding text-sm text-card-foreground shadow-2xl transition duration-200 ease-in-out",
           "data-[side=right]:inset-y-0 data-[side=right]:right-0 data-[side=right]:h-full data-[side=right]:w-full data-[side=right]:sm:max-w-md data-[side=right]:border-l",
           "data-[side=left]:inset-y-0 data-[side=left]:left-0 data-[side=left]:h-full data-[side=left]:w-full data-[side=left]:sm:max-w-md data-[side=left]:border-r",
           "data-[side=bottom]:inset-x-0 data-[side=bottom]:bottom-0 data-[side=bottom]:border-t",

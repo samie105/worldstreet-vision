@@ -86,7 +86,8 @@ export function AdminShell({
     <nav className={cn("flex flex-col gap-6", className)}>
       {ADMIN_NAV_GROUPS.map((block) => (
         <div key={block.group}>
-          <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+          {/* House eyebrow: 11px, 0.08em tracking, subtle ink. */}
+          <p className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle">
             {block.group}
           </p>
           <ul className="flex flex-col gap-0.5">
@@ -98,9 +99,11 @@ export function AdminShell({
                     href={link.href}
                     onClick={onNavigate}
                     className={cn(
+                      // Active = neutral raised fill + foreground text (the
+                      // Segmented-thumb grammar) — never a gold fill.
                       "flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm transition-colors",
                       active
-                        ? "bg-primary/15 font-medium text-primary"
+                        ? "bg-accent font-medium text-foreground"
                         : "text-foreground/80 hover:bg-accent hover:text-foreground",
                     )}
                   >
@@ -119,10 +122,10 @@ export function AdminShell({
   return (
     <div className="grid min-h-dvh grid-cols-1 md:grid-cols-[260px_1fr]">
       {/* Desktop sidebar */}
-      <aside className="relative hidden md:flex md:flex-col border-r border-border/60 bg-card/40">
+      <aside className="relative hidden md:flex md:flex-col border-r border-border/60 bg-sidebar">
         <div className="flex items-start justify-between gap-2 border-b border-border/60 p-4">
           <Link href="/admin" className="min-w-0 flex-1">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle">
               WorldStreet
             </p>
             <p className="truncate text-[15px] font-semibold leading-tight tracking-tight">Vision Studio</p>
@@ -171,7 +174,7 @@ export function AdminShell({
               <SheetContent side="left" className="w-[min(100%,288px)] p-0 pt-14">
                 <SheetTitle className="sr-only">Vision admin navigation</SheetTitle>
                 <div className="px-4 pb-6">
-                  <p className="mb-6 text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                  <p className="mb-6 text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle">
                     Vision Studio
                   </p>
                   <NavColumn onNavigate={() => setMobileNavOpen(false)} />

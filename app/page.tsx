@@ -22,7 +22,7 @@ export default async function HomePage() {
 
 async function Home() {
   const user = await getAuthUser()
-  const featured = await listTitles({ limit: 1 })
+  const featured = await listTitles({ limit: 6 })
   const hero = featured[0] ?? null
   const [rails, continueItems] = await Promise.all([
     buildHomeRails(user?.userId ?? null),
@@ -40,10 +40,22 @@ async function Home() {
     ? continueItems.find((item) => item.title._id === hero._id)?.positionSeconds ?? 0
     : 0
 
+  // Resume positions for every film riding the hero carousel.
+  const heroResumeByTitleId: Record<string, number | undefined> = {}
+  for (const item of continueItems) {
+    heroResumeByTitleId[item.title._id] = item.positionSeconds
+  }
+
   return (
     <div className="flex flex-col gap-2 md:gap-3">
       {hero ? (
-        <Hero title={hero} resumeSeconds={heroResume} variant="billboard" />
+        <Hero
+          title={hero}
+          titles={featured}
+          resumeByTitleId={heroResumeByTitleId}
+          resumeSeconds={heroResume}
+          variant="billboard"
+        />
       ) : (
         <HomeEmptyState />
       )}
@@ -56,12 +68,13 @@ async function Home() {
         />
       ) : null}
 
-      {rails.map(({ rail, titles }, index) => (
+      {rails.map(({ rail, titles }) => (
         <TitleRail
           key={rail._id}
           label={rail.label}
           titles={titles}
-          ranked={rail.kind === "trending" && index === 1}
+          ranked={rail.slug.startsWith("top-10")}
+          href={rail.genreFilter ? `/browse?genre=${encodeURIComponent(rail.genreFilter)}` : undefined}
           emptyState={
             rail.kind === "continue"
               ? "Start watching something to see it here next time."

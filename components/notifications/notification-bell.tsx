@@ -37,11 +37,13 @@ const KIND_ICON: Record<VisionNotificationKind, typeof PlayIcon> = {
   "continue-watching": PlayIcon,
 }
 
+/* House chips: 14% tints of the semantic tokens; info has no house meaning,
+ * so it sits on the neutral raised step (colour carries meaning only). */
 const TONE_CLASS = {
-  primary: "bg-primary/15 text-primary",
-  info: "bg-sky-500/15 text-sky-400",
-  success: "bg-success/15 text-success",
-  warning: "bg-warning/15 text-warning",
+  primary: "bg-primary/[0.12] text-primary",
+  info: "bg-accent text-muted-foreground",
+  success: "bg-credit-chip text-credit",
+  warning: "bg-warning-chip text-warning",
 } as const
 
 export function NotificationBell({ recommendations, triggerClassName }: NotificationBellProps) {
@@ -126,7 +128,7 @@ export function NotificationBell({ recommendations, triggerClassName }: Notifica
             ))}
           </AnimatePresence>
         </ul>
-        <div className="shrink-0 bg-background/35 px-4 py-2 text-center dark:bg-white/[0.06]">
+        <div className="shrink-0 bg-surface-sunken px-4 py-2 text-center">
           <Link
             href="/settings#notifications"
             className="text-[11px] text-muted-foreground hover:text-foreground"

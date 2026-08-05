@@ -90,7 +90,7 @@ export function ProfilePicker() {
                 </button>
                 <p className="text-sm font-medium text-white/90">{profile.name}</p>
                 {profile.isKid ? (
-                  <span className="rounded-full bg-success/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-success">
+                  <span className="rounded-full bg-credit-chip px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-credit">
                     Kids
                   </span>
                 ) : null}
