@@ -5,62 +5,37 @@
 @custom-variant dark (&:is(.dark *));
 
 /* ───────────────────────────────────────────────────────────────────────
-   Vision — the WorldStreet house theme (warm stone ladder), cinema surface.
-   Values mirror dashboard-revamp/app/globals.css, the canonical set:
-
-     dark:  #0A0908 canvas → #141110 sunken → #1C1917 card → #292524 raised
-
-   The canvas sits one notch under the hub's #0C0A09 — 映画 wants a blacker
-   black — but every other rung is the shared house value, so Vision, the
-   hub, and the dashboard read as one family.
-
-   House rules encoded here:
-     · Gold is the ONLY brand colour, and it always carries stone-950 text
-       on top (--ws-brand-on-primary) — NEVER white on gold.
-     · Colour carries meaning: credit/debit/warning (+14% chips in dark,
-       10% on paper). Nothing decorative.
-     · Dark surfaces separate by FILL, not outline; rows use hairlines.
-   The --ws-* vocabulary is kept as an alias layer over the house tokens so
-   existing components keep resolving — prefer the house names in new work.
+   Vision — WorldStreet Design System v2 (2026-08-05): the unified stone +
+   gold look adopted from dashboard-revamp (the hub). Token values mirror
+   design-tokens/tokens.css — dark (default) + light — and are HAND-SYNCED;
+   keep them in step when tokens.css changes.
+   The shadcn semantic vocabulary below is an alias layer over --ws-*.
+   Never hardcode a hex in components — use the variables.
    ─────────────────────────────────────────────────────────────────────── */
 :root {
-    /* House money-direction / status tokens (light: 700s stay legible on
-       paper; chip tints are a 10% wash — same values as the dashboard). */
-    --credit: #047857;
-    --credit-chip: rgba(4, 120, 87, 0.10);
-    --debit: #B91C1C;
-    --debit-chip: rgba(185, 28, 28, 0.10);
-    --convert-chip: rgba(161, 98, 7, 0.10);
-    --warning: #B45309;
-    --warning-chip: rgba(180, 83, 9, 0.10);
-    /* Panels that sit UNDER a primary one — segmented tracks, wells. */
-    --surface-sunken: oklch(0.975 0.002 49.3);
-    /* Eyebrows / tertiary text. */
-    --subtle: oklch(0.553 0.013 58.1);
-
-    /* WS alias layer — light ("platform-light" in the old naming) */
-    --ws-bg-page: oklch(1 0 0);
-    --ws-bg-sunken: var(--surface-sunken);
-    --ws-bg-surface: oklch(1 0 0);
+    /* WS light tokens (paper mode) */
+    --ws-bg-page: #FFFFFF;
+    --ws-bg-sunken: oklch(0.975 0.002 49.3);
+    --ws-bg-surface: #FFFFFF;
     --ws-bg-raised: oklch(0.96 0.002 17.2);
     --ws-bg-chip: oklch(0.96 0.002 17.2);
-    --ws-bg-track: oklch(0.922 0.005 34.3);
+    --ws-bg-track: oklch(0.975 0.002 49.3);
     --ws-border-hairline: oklch(0.922 0.005 34.3);
     --ws-text-primary: oklch(0.147 0.004 49.3);
     --ws-text-muted: oklch(0.547 0.021 43.1);
-    --ws-text-subtle: var(--subtle);
+    --ws-text-subtle: oklch(0.553 0.013 58.1);
     --ws-brand-primary: oklch(0.852 0.199 91.936);
-    --ws-brand-active: oklch(0.795 0.184 86.047);
-    --ws-brand-dim: oklch(0.681 0.162 75.834);
-    --ws-brand-on-primary: oklch(0.147 0.004 49.3); /* stone-950 on gold, always */
-    --ws-brand-gold-text: oklch(0.554 0.135 66.442);
-    --ws-status-success: var(--credit);
-    --ws-status-warning: var(--warning);
-    --ws-status-warning-chip: var(--warning-chip);
-    --ws-status-danger: var(--debit);
-    --ws-overlay-scrim: rgba(12, 10, 9, 0.45);
-    --ws-focus-ring: oklch(0.714 0.014 41.2);
-    --ws-glow-brand: rgba(234, 179, 8, 0.05);
+    --ws-brand-active: #CA8A04;
+    --ws-brand-dim: #A16207;
+    --ws-brand-on-primary: oklch(0.147 0.004 49.3);
+    --ws-brand-gold-text: #A16207;
+    --ws-status-success: #047857;
+    --ws-status-warning: #B45309;
+    --ws-status-warning-chip: rgba(180, 83, 9, 0.10);
+    --ws-status-danger: #B91C1C;
+    --ws-overlay-scrim: rgba(24, 24, 27, 0.45);
+    --ws-focus-ring: #CA8A04;
+    --ws-glow-brand: rgba(202, 138, 4, 0.05);
     --ws-accent-vision: #F43F5E;
 
     /* shadcn alias layer */
@@ -78,18 +53,16 @@
     --muted-foreground: var(--ws-text-muted);
     --accent: var(--ws-bg-raised);
     --accent-foreground: var(--ws-text-primary);
-    --destructive: oklch(0.577 0.245 27.325);
+    --destructive: var(--ws-status-danger);
     --border: var(--ws-border-hairline);
     --input: var(--ws-border-hairline);
     --ring: var(--ws-focus-ring);
-    /* House gold chart ramp (same in both modes, like the dashboard). */
     --chart-1: oklch(0.905 0.182 98.111);
     --chart-2: oklch(0.795 0.184 86.047);
     --chart-3: oklch(0.681 0.162 75.834);
     --chart-4: oklch(0.554 0.135 66.442);
     --chart-5: oklch(0.476 0.114 61.907);
-    --radius: 0.45rem;
-    --sidebar: oklch(0.986 0.002 67.8);
+    --sidebar: var(--ws-bg-surface);
     --sidebar-foreground: var(--ws-text-primary);
     --sidebar-primary: var(--ws-brand-primary);
     --sidebar-primary-foreground: var(--ws-brand-on-primary);
@@ -98,75 +71,45 @@
     --sidebar-border: var(--ws-border-hairline);
     --sidebar-ring: var(--ws-focus-ring);
 
-    /* Vision-only: cinematic backdrop tones for hero, rails, and player.
-       The stage stays warm stone-black even in light mode. */
+    /* Vision-only: cinematic backdrop tones for hero, rails, and player. */
     --vision-stage: #0C0A09;
-    --vision-stage-foreground: oklch(0.986 0.002 67.8);
+    --vision-stage-foreground: #FAFAF9;
     --vision-overlay: rgba(0, 0, 0, 0.35);
 }
 
-/* ── Dark — the Vision default. Warm stone, written as HEX on purpose:
-   these are the exact values the hub's cards and the mobile app ship. */
 .dark {
-    /* Money direction / status (Tailwind 500s — picked to glow on
-       near-black); chips at 14% so they read on these surfaces. */
-    --credit: #10B981;
-    --credit-chip: rgba(16, 185, 129, 0.14);
-    --debit: #EF4444;
-    --debit-chip: rgba(239, 68, 68, 0.14);
-    --convert-chip: rgba(234, 179, 8, 0.14);
-    --warning: #F59E0B;
-    --warning-chip: rgba(245, 158, 11, 0.14);
-    --surface-sunken: #141110;
-    --subtle: #78716C;                    /* hub `ink-subtle` — eyebrows */
-
-    --ws-bg-page: #0A0908;                /* cinema canvas (hub: #0C0A09) */
-    --ws-bg-sunken: var(--surface-sunken);
-    --ws-bg-surface: #1C1917;             /* card — hub `bg-elev` */
-    --ws-bg-raised: #292524;              /* raised — hub `elev-2` */
+    /* WS dark tokens (the default) — the hub's warm stone ladder */
+    --ws-bg-page: #0C0A09;
+    --ws-bg-sunken: #141110;
+    --ws-bg-surface: #1C1917;
+    --ws-bg-raised: #292524;
     --ws-bg-chip: #292524;
-    --ws-bg-track: #292524;
+    --ws-bg-track: #141110;
     --ws-border-hairline: oklch(1 0 0 / 10%);
     --ws-text-primary: oklch(0.986 0.002 67.8);
-    --ws-text-muted: #A8A29E;             /* hub `ink-muted` */
-    --ws-text-subtle: var(--subtle);
+    --ws-text-muted: #A8A29E;
+    --ws-text-subtle: #78716C;
     --ws-brand-primary: oklch(0.795 0.184 86.047);
-    --ws-brand-active: oklch(0.852 0.199 91.936);
-    --ws-brand-dim: oklch(0.681 0.162 75.834);
+    --ws-brand-active: #FACC15;
+    --ws-brand-dim: #CA8A04;
     --ws-brand-on-primary: oklch(0.147 0.004 49.3);
-    --ws-brand-gold-text: var(--ws-brand-primary);
-    --ws-status-success: var(--credit);
-    --ws-status-warning: var(--warning);
-    --ws-status-warning-chip: var(--warning-chip);
-    --ws-status-danger: var(--debit);
+    --ws-brand-gold-text: #EAB308;
+    --ws-status-success: #10B981;
+    --ws-status-warning: #F59E0B;
+    --ws-status-warning-chip: rgba(245, 158, 11, 0.14);
+    --ws-status-danger: #EF4444;
     --ws-overlay-scrim: rgba(0, 0, 0, 0.60);
-    --ws-focus-ring: oklch(0.547 0.021 43.1);
-    --ws-glow-brand: rgba(234, 179, 8, 0.06);
+    --ws-focus-ring: #EAB308;
+    --ws-glow-brand: rgba(234, 179, 8, 0.07);
 
-    --destructive: oklch(0.704 0.191 22.216);
-    --input: oklch(1 0 0 / 15%);
-    --sidebar: #141110;
-
-    --vision-stage: #070605;              /* one notch under the canvas */
-    --vision-stage-foreground: oklch(0.986 0.002 67.8);
+    --vision-stage: #141110;
+    --vision-stage-foreground: #FAFAFA;
     --vision-overlay: rgba(0, 0, 0, 0.55);
 }
 
 @theme inline {
     --font-sans: var(--font-sans);
     --font-display: var(--font-display), var(--font-sans), system-ui, sans-serif;
-
-    /* House token utilities — same names the dashboard exposes. */
-    --color-credit: var(--credit);
-    --color-credit-chip: var(--credit-chip);
-    --color-debit: var(--debit);
-    --color-debit-chip: var(--debit-chip);
-    --color-convert-chip: var(--convert-chip);
-    --color-warning: var(--warning);
-    --color-warning-chip: var(--warning-chip);
-    --color-surface-sunken: var(--surface-sunken);
-    --color-subtle: var(--subtle);
-
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -199,8 +142,7 @@
     --color-foreground: var(--foreground);
     --color-background: var(--background);
 
-    /* Legacy WS utility names (bg-raised, text-gold, text-success…) —
-       kept alive as aliases so no call site breaks. */
+    /* WS semantic utilities: bg-raised, text-gold, text-success, bg-brand-active… */
     --color-sunken: var(--ws-bg-sunken);
     --color-raised: var(--ws-bg-raised);
     --color-chip: var(--ws-bg-chip);
@@ -209,6 +151,7 @@
     --color-brand-active: var(--ws-brand-active);
     --color-brand-dim: var(--ws-brand-dim);
     --color-success: var(--ws-status-success);
+    --color-warning: var(--ws-status-warning);
     --color-scrim: var(--ws-overlay-scrim);
     --color-accent-vision: var(--ws-accent-vision);
 
@@ -216,16 +159,15 @@
     --color-vision-stage-foreground: var(--vision-stage-foreground);
     --color-vision-overlay: var(--vision-overlay);
 
-    /* House radius grammar: the 0.45rem ladder, with cards at 20px —
-       the hub renders cards as `rounded-[20px]`, softer than the ladder
-       would give. Everything else keeps the ladder. */
-    --radius-sm: calc(var(--radius) * 0.6);
-    --radius-md: calc(var(--radius) * 0.8);
-    --radius-lg: var(--radius);
-    --radius-xl: calc(var(--radius) * 1.4);
+    /* WS v2 radius ladder (0.45rem base). Cards are 20px (2xl) — the hub
+       renders them rounded-[20px]; everything else keeps the tight ladder. */
+    --radius-sm: calc(0.45rem * 0.6);
+    --radius-md: calc(0.45rem * 0.8);
+    --radius-lg: 0.45rem;
+    --radius-xl: calc(0.45rem * 1.4);
     --radius-2xl: 20px;
-    --radius-3xl: calc(var(--radius) * 2.2);
-    --radius-4xl: calc(var(--radius) * 2.6);
+    --radius-3xl: calc(0.45rem * 2.2);
+    --radius-4xl: calc(0.45rem * 2.6);
 }
 
 @layer base {
@@ -242,25 +184,11 @@
   h1, h2, h3 {
     font-family: var(--font-display), var(--font-sans), system-ui, sans-serif;
   }
-
-  /* Film grain — the same overlay the hub and dashboard run, so the three
-     surfaces share texture. Fixed, non-interactive, dark only. */
-  .dark body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    width: 100vw;
-    height: 100vh;
-    pointer-events: none;
-    z-index: 50;
-    opacity: 0.02;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
-  }
 }
 
-/* ── Card styling ──────────────────────────────────────────────────────
-   Light mode gets a hairline; dark mode separates by FILL, not outline —
-   the #1C1917-on-#0A0908 step is enough to read without one. */
+/* ── Card polish (v2, matches the hub): light mode gets a hairline; dark
+      mode separates by FILL, not outline — the #1C1917-on-#0C0A09 step is
+      enough. No shadows on cards. ────────────────────────────────────── */
 :root .rounded-2xl[class*="bg-card"],
 :root .rounded-xl[class*="bg-card"] {
   border: 1px solid var(--border);
@@ -269,6 +197,21 @@
 .dark .rounded-2xl[class*="bg-card"],
 .dark .rounded-xl[class*="bg-card"] {
   border-color: transparent;
+}
+
+/* ── Film grain — the hub's ashy noise texture (DS v2 Atmosphere). Dark
+      only (invisible on white). Fixed, non-interactive, 2% opacity, above
+      content but under chrome. Same SVG as design-tokens/tokens.css. */
+.dark body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 50;
+  opacity: 0.02;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
 }
 
 /* Two-tone hugeicons accent treatment, same as dashboard. */
@@ -280,7 +223,7 @@ svg[viewBox="0 0 24 24"] > path:not(:first-child) {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
-/* Cinematic stage behind hero/player: the deepest stone black with the
+/* Cinematic stage behind hero/player: platform sunken black with the
    sanctioned ambient brand glow (decorative radials only, never a fill). */
 .vision-stage {
   background:
@@ -359,17 +302,6 @@ svg[viewBox="0 0 24 24"] > path:not(:first-child) {
   animation: vision-shimmer 2s infinite linear;
 }
 
-/* ── Rise — staggered section entrance (the house cascade). Apply `.rise`
-   and set `--rise-delay` inline; sections step down in ~60ms increments. */
-@keyframes rise-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-.rise {
-  animation: rise-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
-  animation-delay: var(--rise-delay, 0ms);
-}
-
 /* Respect users who prefer reduced motion. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -377,5 +309,4 @@ svg[viewBox="0 0 24 24"] > path:not(:first-child) {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
-  .rise { animation: none; }
 }
