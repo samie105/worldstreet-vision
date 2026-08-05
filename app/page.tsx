@@ -68,20 +68,20 @@ async function Home() {
         />
       ) : null}
 
-      {rails.map(({ rail, titles }) => (
-        <TitleRail
-          key={rail._id}
-          label={rail.label}
-          titles={titles}
-          ranked={rail.slug.startsWith("top-10")}
-          href={rail.genreFilter ? `/browse?genre=${encodeURIComponent(rail.genreFilter)}` : undefined}
-          emptyState={
-            rail.kind === "continue"
-              ? "Start watching something to see it here next time."
-              : "No titles in this rail yet."
-          }
-        />
-      ))}
+      {/* A rail with nothing in it is noise, not information — an editor can
+          configure a rail before its titles exist, and the placeholder read as
+          breakage on the live site. Empty rails simply don't render. */}
+      {rails
+        .filter(({ titles }) => titles.length > 0)
+        .map(({ rail, titles }) => (
+          <TitleRail
+            key={rail._id}
+            label={rail.label}
+            titles={titles}
+            ranked={rail.slug.startsWith("top-10")}
+            href={rail.genreFilter ? `/browse?genre=${encodeURIComponent(rail.genreFilter)}` : undefined}
+          />
+        ))}
     </div>
   )
 }
